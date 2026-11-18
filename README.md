@@ -10,7 +10,12 @@
 - MobileGestalt / 跨 App 文件访问依赖 worse_query 沙盒逃逸：iOS 27.0.1 上逃逸仍可用，27.3 beta 2 已被 Apple 修补。v1.0.0 内置兼容性检测，逃逸不可用时对应模块明确标为不可用，不强行执行。
 - 备份与恢复只操作本 App 可访问范围内的真实文件，备份真实生成文件并校验完整性。
 
-## 参考项目
+## 技术路线（已调查，见 LICENSES.md）
+
+- **Liquid Glass**：直接用 iOS 26 原生 `.glassEffect`，不引入 LiquidGlass / LiquidGlassKit（两者在 26+ 上只是原生调用的转发，无能力增益）。
+- **逃逸引擎**：KAMUI 的 `BQCore`（MIT），worse_query class-7 App Group 软链逃逸。27.0.1 可用，27.3 beta 2 已被 Apple 修补，App 内置 Build 检测与运行时探测，修补后自动禁用相关模块。
+- **MobileGestalt 预设**：自写键表（哈希键为功能性标识符），两段式 Siri AI、互斥预设、写前备份、写后重读验证、Respring。
+- **GitHub 登录**：官方 OAuth Device Flow（需用户填入自己的 OAuth App Client ID）+ PAT 备用；Token 只存 Keychain。
 
 - GestaltEdit — https://github.com/frs0n/GestaltEdit
 - WQ Files — https://github.com/kolbicz/WQFiles

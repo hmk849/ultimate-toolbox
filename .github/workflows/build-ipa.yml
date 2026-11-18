@@ -54,6 +54,9 @@ jobs:
           assert d.get('MinimumOSVersion') == '26.0', d.get('MinimumOSVersion')
           print('IPA verify OK:', d['CFBundleIdentifier'], d['CFBundleShortVersionString'], d['CFBundleVersion'])
           EOF
+          unzip -l build/UltimateToolbox-unsigned.ipa | grep -q 'respring.html' || (echo 'respring.html missing from bundle' && exit 1)
+          unzip -l build/UltimateToolbox-unsigned.ipa | grep -q 'Assets.car' || (echo 'Assets.car missing' && exit 1)
+          echo 'bundle resources OK'
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
