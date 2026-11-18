@@ -120,9 +120,13 @@ extension Color {
 }
 
 /// 主界面字符串（中 / 英双语，语言设置真实切换）。
+/// 注意：直接读 UserDefaults，不经过 @MainActor 的 AppSettings（L10n 用于非隔离上下文）。
 enum L10n {
+    static var isEnglish: Bool {
+        UserDefaults.standard.string(forKey: "ut.language") == "en"
+    }
     static func s(_ zh: String, _ en: String) -> String {
-        AppSettings.shared.language == .zh ? zh : en
+        isEnglish ? en : zh
     }
     static var home: String { s("主页", "Home") }
     static var tools: String { s("工具", "Tools") }

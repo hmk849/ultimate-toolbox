@@ -37,7 +37,7 @@ final class FileService: ObservableObject {
         switch root {
         case .home: return NSHomeDirectory()
         case .group:
-            return FileManager.default.containerURLForSecurityApplicationGroupIdentifier("group.com.hmk849.ultimatetoolbox")?.path ?? NSHomeDirectory()
+            return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.hmk849.ultimatetoolbox")?.path ?? NSHomeDirectory()
         case .imported:
             try? FileManager.default.createDirectory(at: importedURL, withIntermediateDirectories: true)
             return importedURL.path
@@ -68,7 +68,7 @@ final class FileService: ObservableObject {
         let fm = FileManager.default
         var out: [FileItem] = []
         if let names = try? fm.contentsOfDirectory(atPath: currentPath) {
-            for name in names.sorted(localizedCaseInsensitiveCompare: { $0 < $1 }) {
+            for name in names.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }) {
                 let p = (currentPath as NSString).appendingPathComponent(name)
                 var isDir: ObjCBool = false
                 guard fm.fileExists(atPath: p, isDirectory: &isDir) else { continue }
@@ -224,7 +224,7 @@ extension Data {
         var i = 0
         let bytes = [UInt8](self)
         while i < bytes.count {
-            out.append(Array(bytes[i..<min(i + size, bytes.count)]))
+            out.append(Array(bytes[i..<Swift.min(i + size, bytes.count)]))
             i += size
         }
         return out

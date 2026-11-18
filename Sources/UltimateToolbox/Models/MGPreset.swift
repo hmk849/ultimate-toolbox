@@ -26,7 +26,7 @@ struct MGPreset: Identifiable {
     /// 互斥组：同组内只能选一个（如 Liquid Glass 性能模式 开/关）。
     let conflictGroup: String?
 
-    var displayName: String { AppSettings.shared.language == .zh ? name : nameEn }
+    var displayName: String { L10n.isEnglish ? nameEn : name }
 }
 
 enum MGPresets {

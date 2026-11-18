@@ -35,6 +35,22 @@ final class CacheCleanerService: ObservableObject {
     var totalSize: Int64 { items.reduce(0) { $0 + $1.size } }
     var selectedSize: Int64 { items.filter { $0.selected }.reduce(0) { $0 + $1.size } }
 
+    func setSelected(id: UUID, value: Bool) {
+        if let i = items.firstIndex(where: { $0.id == id }) {
+            items[i].selected = value
+        }
+    }
+
+    func selectAll(_ value: Bool) {
+        for i in items.indices { items[i].selected = value }
+    }
+
+    func selectLarge(threshold: Int64 = 100 * 1024 * 1024) {
+        for i in items.indices {
+            items[i].selected = items[i].size >= threshold
+        }
+    }
+
     private var scanTask: Task<Void, Never>?
 
     func cancelScan() { scanTask?.cancel() }
@@ -65,7 +81,7 @@ final class CacheCleanerService: ObservableObject {
         status = "已扫描本 App 缓存"
 
         // 2. App Group
-        if let groupURL = fm.containerURLForSecurityApplicationGroupIdentifier("group.com.hmk849.ultimatetoolbox") {
+        if let groupURL = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.hmk849.ultimatetoolbox") {
             let caches = groupURL.appendingPathComponent("Library/Caches").path
             let size = Self.directorySize(caches)
             if size > 0 {

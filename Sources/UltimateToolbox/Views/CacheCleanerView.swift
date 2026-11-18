@@ -34,11 +34,11 @@ struct CacheCleanerView: View {
                                 Button("扫描") { service.scan() }
                                     .buttonStyle(.borderedProminent)
                                     .disabled(service.isScanning || service.isCleaning)
-                                Button("选择大型缓存") { selectLarge() }
+                                Button("选择大型缓存") { service.selectLarge() }
                                     .buttonStyle(.bordered)
                                     .disabled(service.items.isEmpty)
                                 Button("全选") {
-                                    for i in service.items.indices { service.items[i].selected = true }
+                                    service.selectAll(true)
                                 }
                                 .buttonStyle(.bordered)
                                 .disabled(service.items.isEmpty)
@@ -59,11 +59,7 @@ struct CacheCleanerView: View {
                         HStack(spacing: 10) {
                             Toggle("", isOn: Binding(
                                 get: { item.selected },
-                                set: { v in
-                                    if let i = service.items.firstIndex(of: item) {
-                                        service.items[i].selected = v
-                                    }
-                                }
+                                set: { v in service.setSelected(id: item.id, value: v) }
                             ))
                             .labelsHidden()
                             VStack(alignment: .leading, spacing: 2) {
@@ -91,12 +87,6 @@ struct CacheCleanerView: View {
             Text("将删除已选 \(service.items.filter { $0.selected }.count) 项缓存，共 \(SystemInfoService.formatBytes(service.selectedSize))。此操作不可恢复（跨 App 缓存清理无备份）。")
         }
         .onAppear { if service.items.isEmpty { service.scan() } }
-    }
-
-    private func selectLarge() {
-        for i in service.items.indices {
-            service.items[i].selected = service.items[i].size >= 100 * 1024 * 1024
-        }
     }
 
     private func unavailableReason(_ status: ModuleStatus) -> String {

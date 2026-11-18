@@ -27,7 +27,10 @@ struct PathEntry: Identifiable, Equatable {
     let size: Int64
 }
 
-final class EscapeService {
+/// KAMUI BQCore（MIT）引擎的 Swift 封装。所有阻塞调用都在后台队列执行，绝不在主线程跑逃逸。
+/// 用 actor 隔离共享可变状态（Swift 6 严格并发要求）。
+
+actor EscapeService {
     static let shared = EscapeService()
     private let queue = DispatchQueue(label: "com.hmk849.ultimatetoolbox.escape", qos: .userInitiated)
     private(set) var initialized = false
@@ -74,7 +77,7 @@ final class EscapeService {
     func saveGestalt(_ dict: [String: Any]) async throws {
         try await runThrowing {
             var err: NSString?
-            let ok = BQSaveGestalt(dict as NSDictionary, &err)
+            let ok = BQSaveGestalt(dict, &err)
             if !ok { throw EscapeError.failed(err as String? ?? "写入 MobileGestalt 失败") }
         }
     }
@@ -89,10 +92,6 @@ final class EscapeService {
 
     func gestaltBackupExists() async -> Bool {
         await run { BQBackupExists() }
-    }
-
-    func gestaltBackupPath() -> String {
-        BQBackupPath() as String? ?? ""
     }
 
     func respring() async {
