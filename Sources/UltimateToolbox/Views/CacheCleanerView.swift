@@ -72,6 +72,20 @@ struct CacheCleanerView: View {
                         }
                         .padding(.horizontal, 4)
                     }
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(L10n.s("会清理", "Will clean"))
+                                .font(.subheadline).fontWeight(.semibold)
+                            Text(L10n.s("本 App 的 Library/Caches 与 tmp；App Group 的 Library/Caches；其他 App（含插件容器）的 Library/Caches 与 tmp；崩溃日志。只删目录里的内容，保留 Caches / tmp 目录本身。", "This app's Library/Caches and tmp; the App Group's Library/Caches; other apps' (including plugin containers') Library/Caches and tmp; crash logs. Only the contents are deleted; the Caches / tmp folders themselves are kept."))
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text(L10n.s("不会清理", "Will NOT clean"))
+                                .font(.subheadline).fontWeight(.semibold)
+                                .padding(.top, 4)
+                            Text(L10n.s("各 App 的 Documents（聊天记录、下载、离线文件）、照片与视频、通讯录、钥匙串、系统文件。清理前不备份，删除不可恢复；有些 App 把离线内容（音乐、地图）放在 Caches 里，清了要重新下载。", "Apps' Documents (chats, downloads, offline files), photos and videos, contacts, Keychain, system files. No backup is made before cleaning and deletion cannot be undone; some apps keep offline content (music, maps) in Caches and will need to download it again."))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 .padding()
             }
