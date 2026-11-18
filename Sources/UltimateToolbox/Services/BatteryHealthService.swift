@@ -1,5 +1,4 @@
 import Foundation
-import IOKit
 
 /// 电池健康：IOKit 实时探测优先，逃逸解析 Analytics 诊断日志做后备。
 /// 两条路都读不到就返回 nil，绝不伪造；诊断日志有 24 小时左右延迟，须标清数据日期。
