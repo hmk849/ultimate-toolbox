@@ -119,20 +119,28 @@ final class CacheCleanerService: ObservableObject {
         }
     }
 
-    /// 跨 App：枚举应用数据容器，逐个计量 Library/Caches 与 tmp。
+    /// 跨 App：枚举应用数据容器 + 插件容器，逐个计量 Library/Caches 与 tmp。
+    /// 插件容器（PluginKitPlugin，小组件/分享扩展等）与 WQ Files 对齐，之前只扫了 Application。
     private func scanCrossApp() async -> [CacheItem] {
         var out: [CacheItem] = []
         let roots = await EscapeService.shared.containerRoots()
-        let appRoot = roots.first { $0.contains("Containers/Data/Application") } ?? roots.first ?? ""
-        guard !appRoot.isEmpty else { return out }
-        let containers = await EscapeService.shared.listContainers(root: appRoot)
-        let total = max(containers.count, 1)
-        for (i, container) in containers.enumerated() {
+        let appRoots = roots.filter { $0.contains("Containers/Data/Application") || $0.contains("Containers/Data/PluginKitPlugin") }
+        let useRoots = appRoots.isEmpty ? Array(roots.prefix(1)) : appRoots
+        var allContainers: [(root: String, container: String)] = []
+        for root in useRoots {
+            let containers = await EscapeService.shared.listContainers(root: root)
+            allContainers.append(contentsOf: containers.map { (root, $0) })
+        }
+        let total = max(allContainers.count, 1)
+        for (i, entry) in allContainers.enumerated() {
             if Task.isCancelled { break }
+            let container = entry.container
+            let isPlugin = entry.root.contains("PluginKitPlugin")
             let bundleID = await EscapeService.shared.containerBundleID(container) ?? (container as NSString).lastPathComponent
+            let label = isPlugin ? "\(bundleID)（插件）" : bundleID
             for sub in ["Library/Caches", "tmp"] {
                 if let stat = await statInContainer(container, sub), stat.size > 0 {
-                    out.append(CacheItem(name: "\(bundleID) · \(sub)", path: (container as NSString).appendingPathComponent(sub), container: container, kind: .app, size: stat.size))
+                    out.append(CacheItem(name: "\(label) · \(sub)", path: (container as NSString).appendingPathComponent(sub), container: container, kind: .app, size: stat.size))
                 }
             }
             await MainActor.run { self.progress = 0.25 + 0.6 * Double(i + 1) / Double(total) }
@@ -146,19 +154,22 @@ final class CacheCleanerService: ObservableObject {
     }
 
     private func directorySizeInContainer(_ container: String, _ rel: String) async -> (isDir: Bool, size: Int64)? {
-        guard let entries = try? await EscapeService.shared.listPath(container: container, rel: rel) else { return nil }
+        // 递归累加；某一级 listPath 失败只跳过该子树，不让整个目录消失（之前失败会直接 return nil，整个 Caches 不显示）。
+        (true, await directorySizeValue(container, rel))
+    }
+
+    private func directorySizeValue(_ container: String, _ rel: String) async -> Int64 {
+        guard let entries = try? await EscapeService.shared.listPath(container: container, rel: rel) else { return 0 }
         var total: Int64 = 0
         for e in entries {
             if e.isDir {
-                if let sub = await directorySizeInContainer(container, (rel as NSString).appendingPathComponent(e.name)) {
-                    total += sub.size
-                }
+                total += await directorySizeValue(container, (rel as NSString).appendingPathComponent(e.name))
             } else {
                 total += e.size
             }
             if Task.isCancelled { break }
         }
-        return (true, total)
+        return total
     }
 
     /// 崩溃日志（仅 iOS 27 + 逃逸可用）：/var/mobile/Library/Logs/CrashReporter。

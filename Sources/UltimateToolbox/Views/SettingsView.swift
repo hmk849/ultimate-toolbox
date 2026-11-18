@@ -97,7 +97,7 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("版本信息") {
-                HStack { Text("版本"); Spacer(); Text("1.0.0（build 1）").foregroundStyle(.secondary) }
+                HStack { Text("版本"); Spacer(); Text("\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")（build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")）").foregroundStyle(.secondary) }
                 HStack { Text("最低 iOS"); Spacer(); Text("26.0").foregroundStyle(.secondary) }
                 Button(isCheckingUpdate ? "正在检查…" : "检查更新") {
                     Task { await checkUpdate() }
@@ -154,8 +154,9 @@ struct SettingsView: View {
             }
             struct Latest: Decodable { let tag_name: String }
             let latest = try JSONDecoder().decode(Latest.self, from: data)
-            if latest.tag_name == "v1.0.0" {
-                updateMessage = "当前已是最新版本（v1.0.0）。"
+            let current = "v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")"
+            if latest.tag_name == current {
+                updateMessage = "当前已是最新版本（\(current)）。"
             } else {
                 updateMessage = "发现新版本 \(latest.tag_name)，请到 GitHub Releases 下载。"
             }
