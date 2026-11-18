@@ -24,8 +24,8 @@ targets:
     info:
       path: Sources/UltimateToolbox/Resources/Info.plist
       properties:
-        CFBundleShortVersionString: "1.0.1"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "1.0.2"
+        CFBundleVersion: "3"
         CFBundleDisplayName: Ultimate Toolbox
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
@@ -34,6 +34,9 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
+        NSBluetoothAlwaysUsageDescription: "显示蓝牙开关状态（仅读取系统蓝牙状态，不扫描、不连接任何设备）。"
+        NSBluetoothPeripheralUsageDescription: "显示蓝牙开关状态（仅读取系统蓝牙状态，不扫描、不连接任何设备）。"
+        NSLocationWhenInUseUsageDescription: "读取当前 Wi-Fi 名称需要精确位置权限，仅用于识别当前网络，不记录、不上传位置。"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hmk849.ultimatetoolbox
@@ -45,6 +48,13 @@ targets:
     dependencies:
       - sdk: WebKit.framework
       - sdk: libz.tbd
+      - sdk: IOKit.framework
+      - sdk: NetworkExtension.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: CoreLocation.framework
+      - sdk: Compression.framework
+    entitlements:
+      path: Sources/UltimateToolbox/UltimateToolbox.entitlements
     capabilities:
       - type: keychain-sharing
       - type: app-groups

@@ -2,8 +2,11 @@ import Foundation
 import UIKit
 import Network
 import Darwin
+import CoreBluetooth
 
-/// 系统信息：只用公开 API。读不到的项明确标"不可读取"，绝不伪造。
+/// 系统信息：公开 API + IOKit 探测 + 逃逸读系统文件。读不到的项明确标"不可读取"，绝不伪造。
+/// 电池健康与 Wi-Fi 名称是异步探测（IOKit / 诊断日志 / fetchCurrent / 系统配置文件），
+/// 刷新时先显示"检测中…"，探测完成后再更新。
 
 struct InfoRow: Identifiable {
     let id = UUID()
@@ -20,7 +23,7 @@ struct SystemInfoSection: Identifiable {
 }
 
 @MainActor
-final class SystemInfoService: ObservableObject {
+final class SystemInfoService: ObservableObject, CBCentralManagerDelegate {
     static let shared = SystemInfoService()
 
     @Published private(set) var sections: [SystemInfoSection] = []
@@ -28,6 +31,30 @@ final class SystemInfoService: ObservableObject {
 
     private let monitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "com.hmk849.ultimatetoolbox.network")
+
+    /// 蓝牙开关状态（CoreBluetooth 公开 API，只读状态，不扫描不连接）。
+    private var bluetoothManager: CBCentralManager?
+    private var bluetoothStatus: String = "检测中…"
+
+    /// 异步探测结果（电池健康 / Wi-Fi 名称），初始为检测中，探测完成或失败后更新。
+    private var batteryValue: String = "检测中…"
+    private var batteryAvailable = false
+    private var wifiValue: String = "检测中…"
+    private var wifiAvailable = false
+    private var probesStarted = false
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        switch central.state {
+        case .poweredOn: bluetoothStatus = "已开启"
+        case .poweredOff: bluetoothStatus = "已关闭"
+        case .unauthorized: bluetoothStatus = "未授权（请在设置中允许蓝牙）"
+        case .unsupported: bluetoothStatus = "设备不支持蓝牙"
+        case .resetting: bluetoothStatus = "正在重置…"
+        case .unknown: bluetoothStatus = "检测中…"
+        @unknown default: bluetoothStatus = "未知"
+        }
+        refresh()
+    }
 
     static func deviceModelIdentifier() -> String {
         CompatibilityService.sysctlString("hw.machine") ?? UIDevice.current.model
@@ -90,6 +117,15 @@ final class SystemInfoService: ObservableObject {
 
     func refresh() {
         UIDevice.current.isBatteryMonitoringEnabled = true
+        // 懒创建蓝牙管理器（只读开关状态；首次创建时系统可能弹一次蓝牙权限提示）。
+        if bluetoothManager == nil {
+            bluetoothManager = CBCentralManager(delegate: self, queue: nil)
+        }
+        // 电池健康与 Wi-Fi 名称只探测一次（异步，完成后自动刷新本页）。
+        if !probesStarted {
+            probesStarted = true
+            Task { await startProbes() }
+        }
         let device = UIDevice.current
         let proc = ProcessInfo.processInfo
         let screen = UIScreen.main
@@ -130,7 +166,7 @@ final class SystemInfoService: ObservableObject {
             .init(title: "屏幕分辨率", value: "\(Int(screen.nativeBounds.width)) × \(Int(screen.nativeBounds.height)) @\(screen.scale)x", available: true),
             .init(title: "屏幕刷新率", value: "\(screen.maximumFramesPerSecond) Hz", available: true),
             .init(title: "电池电量", value: batteryLevel >= 0 ? "\(Int(batteryLevel * 100))%（\(batteryState)）" : "不可读取", available: batteryLevel >= 0),
-            .init(title: "电池健康", value: "不可读取（无公开 API）", available: false),
+            .init(title: "电池健康", value: batteryValue, available: batteryAvailable),
         ]
         let systemRows: [InfoRow] = [
             .init(title: "iOS 版本", value: "\(device.systemVersion)", available: true),
@@ -140,8 +176,8 @@ final class SystemInfoService: ObservableObject {
             .init(title: "时区", value: TimeZone.current.identifier, available: true),
             .init(title: "语言", value: Locale.current.identifier, available: true),
             .init(title: "网络状态", value: networkStatus, available: true),
-            .init(title: "Wi-Fi 名称", value: "不可读取（需定位权限与专用 entitlement）", available: false),
-            .init(title: "蓝牙状态", value: "见系统设置（App 内无公开读取 API）", available: false),
+            .init(title: "Wi-Fi 名称", value: wifiValue, available: wifiAvailable),
+            .init(title: "蓝牙状态", value: bluetoothStatus, available: bluetoothStatus != "检测中…" && bluetoothStatus != "未知"),
             .init(title: "系统架构", value: arch, available: true),
         ]
         sections = [
@@ -149,5 +185,42 @@ final class SystemInfoService: ObservableObject {
             SystemInfoSection(title: "系统", rows: systemRows),
         ]
         UTLog.info("系统信息已刷新：\(Self.marketingName(for: identifier))，iOS \(device.systemVersion)", category: "系统信息")
+    }
+
+    /// 异步探测电池健康与 Wi-Fi 名称，任一完成即更新本页。
+    private func startProbes() async {
+        async let battery = BatteryHealthService.shared.fetch()
+        async let wifi = WiFiService.shared.fetch()
+        let b = await battery
+        let w = await wifi
+        if let b {
+            var parts: [String] = []
+            if let h = b.healthPercent { parts.append(String(format: "%.0f%%", h)) }
+            if let c = b.cycleCount { parts.append("\(c) 次循环") }
+            if let d = b.designCapacityMah, let cur = b.currentCapacityMah {
+                parts.append("设计 \(d) mAh / 当前 \(cur) mAh")
+            } else if let d = b.designCapacityMah {
+                parts.append("设计 \(d) mAh")
+            }
+            if let t = b.temperatureC { parts.append(String(format: "%.1f°C", t)) }
+            var value = parts.isEmpty ? "已读取" : parts.joined(separator: " · ")
+            if b.source == "诊断日志" {
+                let dateText = b.dataDate.map { DateFormatter.localizedString(from: $0, dateStyle: .short, timeStyle: .none) } ?? "未知日期"
+                value += "（诊断日志 \(dateText)，非实时）"
+            }
+            batteryValue = value
+            batteryAvailable = true
+        } else {
+            batteryValue = "不可读取（IOKit 被拦且诊断日志无电池数据）"
+            batteryAvailable = false
+        }
+        if let w {
+            wifiValue = w.source == "系统 Wi-Fi 信息" || w.source == "系统动态库" ? w.ssid : "\(w.ssid)（\(w.source)）"
+            wifiAvailable = true
+        } else {
+            wifiValue = "不可读取（未获定位授权且系统配置中无匹配网络）"
+            wifiAvailable = false
+        }
+        refresh()
     }
 }

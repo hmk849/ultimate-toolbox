@@ -12,6 +12,8 @@ struct BackupView: View {
     @State private var showShare = false
     @State private var resultMessage: String?
     @State private var showResult = false
+    @State private var mgBackupExists = false
+    @State private var isBackingUpMG = false
 
     var body: some View {
         List {
@@ -28,7 +30,23 @@ struct BackupView: View {
                     Label("备份应用数据", systemImage: "externaldrive.badge.plus")
                 }
                 .disabled(isBackingUp)
-                Text("备份 Documents 下除 Backups 外的全部内容，生成 manifest.json 并对每个文件做 SHA-256 校验。MobileGestalt 原始文件在首次读取时已由引擎自动备份。")
+                Text("备份 Documents 下除 Backups 外的全部内容（含引擎自动备份的 MobileGestalt 原始文件 OriginalGestalt.plist），生成 manifest.json 并对每个文件做 SHA-256 校验。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button {
+                    isBackingUpMG = true
+                    Task {
+                        let entry = await service.backupGestaltOriginal()
+                        isBackingUpMG = false
+                        resultMessage = entry != nil ? "MobileGestalt 原始文件备份已创建并通过完整性校验。" : "没有可备份的原始文件：请先在 MobileGestalt 页读取一次，引擎会自动生成原始备份。"
+                        showResult = true
+                    }
+                } label: {
+                    Label("备份 MobileGestalt 原始文件", systemImage: "doc.badge.plus")
+                }
+                .disabled(isBackingUpMG || !mgBackupExists)
+                Text(mgBackupExists
+                     ? "引擎已在首次读取时自动备份原始文件，可单独再存一份。"
+                     : "暂无原始文件备份：先去 MobileGestalt 页读取一次，引擎会自动生成。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("备份列表（\(service.backups.count) 个）") {
@@ -99,6 +117,9 @@ struct BackupView: View {
                     .presentationDetents([.medium])
             }
         }
-        .onAppear { service.refresh() }
+        .onAppear {
+            service.refresh()
+            Task { mgBackupExists = await EscapeService.shared.gestaltBackupExists() }
+        }
     }
 }

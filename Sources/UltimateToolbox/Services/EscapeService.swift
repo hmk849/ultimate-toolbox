@@ -101,6 +101,11 @@ actor EscapeService {
         await run { BQBackupExists() }
     }
 
+    /// 引擎自动备份的 MobileGestalt 原始文件路径（Documents/OriginalGestalt.plist）。
+    func gestaltBackupPath() -> String {
+        BQBackupPath() as String? ?? ""
+    }
+
     func respring() async {
         await run { BQRespring() }
     }
@@ -164,6 +169,32 @@ actor EscapeService {
             var err: NSString?
             let ok = BQDeletePath(container, rel, &err)
             if !ok { throw EscapeError.failed(err as String? ?? "删除失败") }
+        }
+    }
+
+    // MARK: - 任意路径逃逸直读（用于系统信息等读系统文件）
+
+    /// 逃逸列出任意目录的内容（对该目录做逃逸后直接读）。系统目录是否可达需实测，失败返回 nil。
+    func listDirectory(_ path: String) async -> [String]? {
+        await run {
+            var link: NSString?
+            let h = BQEscape(path, &link)
+            guard h >= 0, let linkPath = link as String? else { return nil }
+            defer { BQEndEscape(h) }
+            return try? FileManager.default.contentsOfDirectory(atPath: linkPath)
+        }
+    }
+
+    /// 逃逸读取任意文件（对父目录做逃逸后读文件）。失败返回 nil。
+    func readFile(_ path: String) async -> Data? {
+        await run {
+            let parent = (path as NSString).deletingLastPathComponent
+            let name = (path as NSString).lastPathComponent
+            var link: NSString?
+            let h = BQEscape(parent, &link)
+            guard h >= 0, let linkPath = link as String? else { return nil }
+            defer { BQEndEscape(h) }
+            return try? Data(contentsOf: URL(fileURLWithPath: (linkPath as NSString).appendingPathComponent(name)))
         }
     }
 

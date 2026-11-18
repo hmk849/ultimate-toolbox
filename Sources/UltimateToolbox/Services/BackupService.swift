@@ -90,7 +90,7 @@ final class BackupService: ObservableObject {
         }
     }
 
-    /// 备份本 App 的全部用户数据（Documents 下除 Backups 外的所有内容）。
+    /// 备份本 App 的全部用户数据（Documents 下除 Backups 外的所有内容，含引擎自动备份的 OriginalGestalt.plist）。
     func backupAppData() -> BackupEntry? {
         let fm = FileManager.default
         let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -101,6 +101,16 @@ final class BackupService: ObservableObject {
             }
         }
         return createBackup(label: "应用数据", items: items)
+    }
+
+    /// 单独备份 MobileGestalt 原始文件（引擎首次读取时自动生成的 Documents/OriginalGestalt.plist）。
+    /// 未读取过 MobileGestalt 时引擎备份不存在，返回 nil。
+    func backupGestaltOriginal() async -> BackupEntry? {
+        guard await EscapeService.shared.gestaltBackupExists() else { return nil }
+        let path = await EscapeService.shared.gestaltBackupPath()
+        guard !path.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: path)
+        return createBackup(label: "MobileGestalt 原始文件", items: [(url, "OriginalGestalt.plist")])
     }
 
     func verifyBackup(at folder: URL, manifest: BackupManifest) -> Bool {
