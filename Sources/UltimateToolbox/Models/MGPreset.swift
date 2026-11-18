@@ -66,13 +66,13 @@ enum MGPresets {
         ),
         MGPreset(
             id: "lg-low", name: "Liquid Glass 低性能模式", nameEn: "Liquid Glass Low Power",
-            description: "降低 Liquid Glass 渲染开销。与"标准性能模式"互斥。",
+            description: "降低 Liquid Glass 渲染开销。与“标准性能模式”互斥。",
             keys: [MGPresetKey(key: "SAGvsp6O6kAQ4fEfDJpC4Q", value: .integer(1))],
             minOSMajor: 27, risk: .normal, conflictGroup: "liquid-glass"
         ),
         MGPreset(
             id: "lg-std", name: "Liquid Glass 标准性能模式", nameEn: "Liquid Glass Standard",
-            description: "恢复 Liquid Glass 标准渲染。与"低性能模式"互斥。",
+            description: "恢复 Liquid Glass 标准渲染。与“低性能模式”互斥。",
             keys: [MGPresetKey(key: "SAGvsp6O6kAQ4fEfDJpC4Q", value: .integer(0))],
             minOSMajor: 27, risk: .normal, conflictGroup: "liquid-glass"
         ),
