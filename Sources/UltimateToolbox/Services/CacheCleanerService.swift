@@ -129,8 +129,7 @@ final class CacheCleanerService: ObservableObject {
         let total = max(containers.count, 1)
         for (i, container) in containers.enumerated() {
             if Task.isCancelled { break }
-            let info = await EscapeService.shared.containerInfo(container)
-            let bundleID = (info["MCMMetadataIdentifier"] as? String) ?? (container as NSString).lastPathComponent
+            let bundleID = await EscapeService.shared.containerBundleID(container) ?? (container as NSString).lastPathComponent
             for sub in ["Library/Caches", "tmp"] {
                 if let stat = await statInContainer(container, sub), stat.size > 0 {
                     out.append(CacheItem(name: "\(bundleID) · \(sub)", path: (container as NSString).appendingPathComponent(sub), container: container, kind: .app, size: stat.size))

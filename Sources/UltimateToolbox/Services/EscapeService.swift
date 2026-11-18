@@ -64,18 +64,25 @@ actor EscapeService {
 
     // MARK: - MobileGestalt
 
-    func loadGestalt() async throws -> [String: Any] {
+    func loadGestalt() async throws -> Data {
         try await runThrowing {
             var err: NSString?
             guard let dict = BQLoadGestalt(&err) as? [String: Any] else {
                 throw EscapeError.failed(err as String? ?? "读取 MobileGestalt 失败")
             }
-            return dict
+            // 用 Data 跨 actor 边界（[String: Any] 不是 Sendable）。
+            guard let data = try? PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0) else {
+                throw EscapeError.failed("序列化 MobileGestalt 失败")
+            }
+            return data
         }
     }
 
-    func saveGestalt(_ dict: [String: Any]) async throws {
+    func saveGestalt(_ data: Data) async throws {
         try await runThrowing {
+            guard let dict = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+                throw EscapeError.failed("解析 MobileGestalt 数据失败")
+            }
             var err: NSString?
             let ok = BQSaveGestalt(dict, &err)
             if !ok { throw EscapeError.failed(err as String? ?? "写入 MobileGestalt 失败") }
@@ -108,9 +115,12 @@ actor EscapeService {
         await run { (BQListContainers(root) as? [String]) ?? [] }
     }
 
-    /// 容器元数据（.com.apple.mobile_container_manager.metadata.plist），含 MCMMetadataIdentifier（Bundle ID）。
-    func containerInfo(_ container: String) async -> [String: Any] {
-        await run { (BQContainerInfo(container) as? [String: Any]) ?? [:] }
+    /// 容器元数据里的 Bundle ID（MCMMetadataIdentifier）。只返回 String，避免 [String: Any] 跨 actor。
+    func containerBundleID(_ container: String) async -> String? {
+        await run {
+            guard let info = BQContainerInfo(container) as? [String: Any] else { return nil }
+            return info["MCMMetadataIdentifier"] as? String
+        }
     }
 
     func listPath(container: String, rel: String) async throws -> [PathEntry] {

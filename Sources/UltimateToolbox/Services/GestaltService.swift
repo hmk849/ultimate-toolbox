@@ -27,7 +27,10 @@ final class GestaltService: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         do {
-            let dict = try await EscapeService.shared.loadGestalt()
+            let data = try await EscapeService.shared.loadGestalt()
+            guard let dict = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+                throw NSError(domain: "MobileGestalt", code: 0, userInfo: [NSLocalizedDescriptionKey: "解析 MobileGestalt 数据失败"])
+            }
             fullDict = dict
             if let extra = dict["CacheExtra"] as? [String: Any] {
                 cacheExtra = extra.keys.sorted().map { ($0, PlistValue.from(extra[$0]!)) }
@@ -123,9 +126,15 @@ final class GestaltService: ObservableObject {
 
     private func saveAndVerify() async -> Bool {
         do {
-            try await EscapeService.shared.saveGestalt(fullDict)
+            let data = try PropertyListSerialization.data(fromPropertyList: fullDict, format: .xml, options: 0)
+            try await EscapeService.shared.saveGestalt(data)
             // 重读验证
-            let reloaded = try await EscapeService.shared.loadGestalt()
+            let reloadedData = try await EscapeService.shared.loadGestalt()
+            guard let reloaded = try? PropertyListSerialization.propertyList(from: reloadedData, options: [], format: nil) as? [String: Any] else {
+                errorMessage = "写入后重读验证失败，无法解析"
+                UTLog.error("MobileGestalt 写入后验证失败", category: "MobileGestalt")
+                return false
+            }
             let reExtra = (reloaded["CacheExtra"] as? [String: Any]) ?? [:]
             let myExtra = (fullDict["CacheExtra"] as? [String: Any]) ?? [:]
             guard reExtra.count == myExtra.count else {
