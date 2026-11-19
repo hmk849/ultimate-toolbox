@@ -51,7 +51,6 @@ targets:
       - sdk: IOKit.framework
       - sdk: NetworkExtension.framework
       - sdk: CoreLocation.framework
-      - sdk: Compression.framework
     entitlements:
       path: Sources/UltimateToolbox/UltimateToolbox.entitlements
     capabilities:
