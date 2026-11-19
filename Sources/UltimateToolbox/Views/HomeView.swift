@@ -47,7 +47,7 @@ struct HomeView: View {
                 settingsRow(icon: "app.badge", color: .blue, title: "App 版本", value: appVersion)
             }
 
-            Section("系统检测") {
+            Section {
                 if let report = compat.report {
                     statusRow("逃逸引擎", status: report.escapeAvailable ? .available : .unavailable(reason: report.escapeDetail))
                     statusRow("MobileGestalt 编辑", status: report.gestalt)
@@ -62,6 +62,8 @@ struct HomeView: View {
                 } else {
                     Text("尚未检测").foregroundStyle(.secondary)
                 }
+            } header: {
+                Text("系统检测")
             } footer: {
                 if let report = compat.report, case .unavailable(let reason) = report.gestalt {
                     Text(reason)
