@@ -47,6 +47,15 @@ struct GitHubView: View {
                             .textFieldStyle(.roundedBorder)
                             .autocapitalization(.none)
                             .disableAutocorrection(true)
+                        if auth.clientID.hasPrefix("Iv1") {
+                            Text("这是 GitHub App 的 Client ID（Iv1. 开头），Device Flow 用不了。请在 OAuth Apps 里新建 OAuth App，它的 ID 以 Ov23 开头。")
+                                .font(.caption).foregroundStyle(.orange)
+                        } else if !auth.clientID.isEmpty && !auth.clientID.hasPrefix("Ov23") {
+                            Text("注意：OAuth App 的 Client ID 一般以 Ov23 开头，你填的看起来不像，请核对。")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                        Link("打开 OAuth Apps 设置页核对", destination: URL(string: "https://github.com/settings/developers")!)
+                            .font(.caption)
                         if auth.isAuthenticating, let code = auth.userCode, let url = auth.verificationURL {
                             VStack(spacing: 8) {
                                 Text("验证码")

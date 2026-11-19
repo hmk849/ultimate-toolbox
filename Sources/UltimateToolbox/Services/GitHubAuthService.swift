@@ -48,6 +48,10 @@ final class GitHubAuthService: ObservableObject {
     }
 
     private let tokenAccount = "github.token"
+    /// 粘贴 Client ID / Secret 时常带上首尾空格或换行，GitHub 会认不出，直接 404；请求前统一去掉。
+    private var trimmedClientID: String { clientID.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedClientSecret: String { clientSecret.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     private let secretAccount = "github.clientSecret"
     private var deviceFlowTask: Task<Void, Never>?
     private var webAuthSession: ASWebAuthenticationSession?
@@ -75,7 +79,7 @@ final class GitHubAuthService: ObservableObject {
 
     /// Device Flow：第一步，取 device_code + user_code。
     func startDeviceFlow() async {
-        guard !clientID.isEmpty else {
+        guard !trimmedClientID.isEmpty else {
             authError = "请先在设置里填入你的 GitHub OAuth App Client ID（github.com/settings/developers 创建）"
             return
         }
@@ -86,10 +90,15 @@ final class GitHubAuthService: ObservableObject {
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Accept")
             req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            req.httpBody = "client_id=\(clientID)&scope=repo%20workflow%20read%3Auser".data(using: .utf8)
+            req.httpBody = "client_id=\(trimmedClientID)&scope=repo%20workflow%20read%3Auser".data(using: .utf8)
             let (data, resp) = try await URLSession.shared.data(for: req)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-                throw NSError(domain: "GitHub", code: 0, userInfo: [NSLocalizedDescriptionKey: "请求 device_code 失败（HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)）"])
+            let statusCode = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard statusCode == 200 else {
+                // 404 = GitHub 不认这个 Client ID：OAuth App 没建好、填成了 GitHub App 的 ID（Iv1. 开头）、或抄错了。
+                if statusCode == 404 {
+                    throw NSError(domain: "GitHub", code: 404, userInfo: [NSLocalizedDescriptionKey: "Client ID 无效（HTTP 404）：GitHub 不认这个 ID。可能原因：① OAuth App 还没建好；② 填成了 GitHub App 的 Client ID（Iv1. 开头），要 OAuth App 的（Ov23 开头）；③ 抄错了。去 github.com/settings/developers 的 OAuth Apps 里核对。"])
+                }
+                throw NSError(domain: "GitHub", code: 0, userInfo: [NSLocalizedDescriptionKey: "请求 device_code 失败（HTTP \(statusCode)）"])
             }
             let code = try JSONDecoder().decode(DeviceCodeResponse.self, from: data)
             userCode = code.user_code
@@ -115,7 +124,7 @@ final class GitHubAuthService: ObservableObject {
                 req.httpMethod = "POST"
                 req.setValue("application/json", forHTTPHeaderField: "Accept")
                 req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-                req.httpBody = "client_id=\(clientID)&device_code=\(deviceCode)&grant_type=urn:ietf:params:oauth:grant-type:device_code".data(using: .utf8)
+                req.httpBody = "client_id=\(trimmedClientID)&device_code=\(deviceCode)&grant_type=urn:ietf:params:oauth:grant-type:device_code".data(using: .utf8)
                 let (data, _) = try await URLSession.shared.data(for: req)
                 let tokenResp = try JSONDecoder().decode(DeviceTokenResponse.self, from: data)
                 if let token = tokenResp.access_token {
@@ -163,7 +172,7 @@ final class GitHubAuthService: ObservableObject {
     /// 生成授权地址（PKCE + state），供系统浏览器登录与 App 内嵌登录页共用。
     /// 返回 nil 时 authError 已设置。
     func beginWebLogin() -> URL? {
-        guard !clientID.isEmpty, !clientSecret.isEmpty else {
+        guard !trimmedClientID.isEmpty, !trimmedClientSecret.isEmpty else {
             authError = "请先填入 Client ID 和 Client Secret（OAuth App 设置页可见，Secret 只存本机 Keychain）"
             return nil
         }
@@ -174,7 +183,7 @@ final class GitHubAuthService: ObservableObject {
         webState = state
         var comps = URLComponents(string: "https://github.com/login/oauth/authorize")!
         comps.queryItems = [
-            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "client_id", value: trimmedClientID),
             URLQueryItem(name: "redirect_uri", value: Self.webCallbackURL),
             URLQueryItem(name: "scope", value: "repo workflow read:user"),
             URLQueryItem(name: "state", value: state),
@@ -270,8 +279,8 @@ final class GitHubAuthService: ObservableObject {
             req.setValue("application/json", forHTTPHeaderField: "Accept")
             req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
             let body = [
-                "client_id": clientID,
-                "client_secret": clientSecret,
+                "client_id": trimmedClientID,
+                "client_secret": trimmedClientSecret,
                 "code": code,
                 "redirect_uri": Self.webCallbackURL,
                 "code_verifier": verifier,
