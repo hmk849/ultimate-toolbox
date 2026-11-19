@@ -44,6 +44,12 @@ struct ToolsView: View {
                     status: .available,
                     destination: AnyView(BackupView())
                 )
+                toolRow(
+                    icon: "photo.fill", color: .pink,
+                    title: L10n.wallpaper, subtitle: ".tendies 动态壁纸导入与壁纸库",
+                    status: compat.report.map { $0.escapeAvailable ? .available : .unavailable(reason: $0.escapeDetail) },
+                    destination: AnyView(TendiesWallpaperView())
+                )
             }
             Section("说明") {
                 Text("跨 App 功能依赖 worse_query 沙盒逃逸：iOS 27.0.1 可用，27.3 beta 2 起已被 Apple 修补，届时对应模块会自动禁用并说明原因。")

@@ -196,5 +196,6 @@ enum L10n {
     static var plistEditor: String { s("Plist 编辑器", "Plist Editor") }
     static var gestalt: String { s("MobileGestalt", "MobileGestalt") }
     static var backup: String { s("备份与恢复", "Backup & Restore") }
+    static var wallpaper: String { s("交互壁纸", "Live Wallpaper") }
     static var unavailable: String { s("不可用", "Unavailable") }
 }
