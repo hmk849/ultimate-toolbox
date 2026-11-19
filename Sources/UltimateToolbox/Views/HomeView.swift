@@ -60,7 +60,7 @@ struct HomeView: View {
                 settingsRow(icon: "app.badge", color: .blue, title: "App 版本", value: appVersion)
             }
 
-            Section("设备操作") {
+            Section {
                 HStack(spacing: 12) {
                     SettingsIconTile(systemName: "arrow.triangle.2.circlepath", color: .red)
                     VStack(alignment: .leading, spacing: 2) {
@@ -77,6 +77,8 @@ struct HomeView: View {
                     }
                 }
                 .disabled(!respringAvailable)
+            } header: {
+                Text("设备操作")
             } footer: {
                 Text("软重启只重启 SpringBoard（桌面），正在运行的 App 会被关闭；不是整机重启。整机重启仍需用电源键或设置 → 通用 → 关机。")
             }

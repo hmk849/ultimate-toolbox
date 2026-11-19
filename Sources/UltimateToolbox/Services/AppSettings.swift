@@ -46,9 +46,9 @@ enum TextSizeOption: Int, CaseIterable, Identifiable {
         switch self {
         case .small: return .small
         case .standard: return .large
-        case .large: return .extraLarge
-        case .extraLarge: return .extraExtraLarge
-        case .huge: return .extraExtraExtraLarge
+        case .large: return .xLarge
+        case .extraLarge: return .xxLarge
+        case .huge: return .xxxLarge
         }
     }
 }
