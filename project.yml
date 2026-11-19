@@ -24,8 +24,8 @@ targets:
     info:
       path: Sources/UltimateToolbox/Resources/Info.plist
       properties:
-        CFBundleShortVersionString: "1.0.2"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "1.0.3"
+        CFBundleVersion: "4"
         CFBundleDisplayName: Ultimate Toolbox
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
@@ -37,6 +37,10 @@ targets:
         NSBluetoothAlwaysUsageDescription: "显示蓝牙开关状态（仅读取系统蓝牙状态，不扫描、不连接任何设备）。"
         NSBluetoothPeripheralUsageDescription: "显示蓝牙开关状态（仅读取系统蓝牙状态，不扫描、不连接任何设备）。"
         NSLocationWhenInUseUsageDescription: "读取当前 Wi-Fi 名称需要精确位置权限，仅用于识别当前网络，不记录、不上传位置。"
+        CFBundleURLTypes:
+          - CFBundleURLName: com.hmk849.ultimatetoolbox.github
+            CFBundleURLSchemes:
+              - com.hmk849.ultimatetoolbox
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hmk849.ultimatetoolbox

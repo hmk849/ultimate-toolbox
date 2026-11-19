@@ -1,7 +1,12 @@
 import Foundation
 import UIKit
+import AuthenticationServices
+import CryptoKit
+import Security
 
-/// GitHub 登录：官方 OAuth Device Flow（无需在 App 内嵌 Client Secret，不让用户填密码）。
+/// GitHub 登录：官方 OAuth Device Flow（无需 Secret）+ 网页登录（ASWebAuthenticationSession，PKCE + state）。
+/// 网页登录换 token 时 GitHub 强制要求 client_secret（PKCE 也省不掉，2026-10 实测不带 secret 返回 incorrect_client_credentials），
+/// Secret 由用户从自己的 OAuth App 设置页粘贴，只存本机 Keychain，绝不进仓库、不上传。
 /// Client ID 由用户在设置里填入自己的 OAuth App Client ID（github.com/settings/developers 创建，免费 2 分钟），
 /// 或直接用 Personal Access Token 登录（备用路径）。Token 只存 Keychain。
 
@@ -34,11 +39,29 @@ final class GitHubAuthService: ObservableObject {
         didSet { UserDefaults.standard.set(clientID, forKey: "ut.github.clientID") }
     }
 
+    /// 用户自己的 OAuth App Client Secret（敏感值，只存 Keychain；网页登录换 token 时 GitHub 强制要求）。
+    @Published var clientSecret: String {
+        didSet {
+            if clientSecret.isEmpty { KeychainHelper.delete(account: secretAccount) }
+            else { KeychainHelper.save(clientSecret, account: secretAccount) }
+        }
+    }
+
     private let tokenAccount = "github.token"
+    private let secretAccount = "github.clientSecret"
     private var deviceFlowTask: Task<Void, Never>?
+    private var webAuthSession: ASWebAuthenticationSession?
+    private let webAuthPresentation = WebAuthPresentationProvider()
+    private var webState: String?
+    private var codeVerifier: String?
+
+    /// 网页登录回调地址（须与 OAuth App 设置里的 Authorization callback URL 完全一致）。
+    static let webCallbackURL = "com.hmk849.ultimatetoolbox://oauth/github"
+    static let webCallbackScheme = "com.hmk849.ultimatetoolbox"
 
     init() {
         clientID = UserDefaults.standard.string(forKey: "ut.github.clientID") ?? ""
+        clientSecret = KeychainHelper.read(account: secretAccount) ?? ""
         isLoggedIn = KeychainHelper.read(account: tokenAccount) != nil
     }
 
@@ -135,6 +158,161 @@ final class GitHubAuthService: ObservableObject {
         verificationURL = nil
     }
 
+    // MARK: - 网页登录（ASWebAuthenticationSession + PKCE + state）
+
+    /// 网页登录：跳 GitHub 网页输账号密码授权，授权后自动跳回 App 内换 token。
+    /// 需要 Client ID + Client Secret（GitHub 换 token 强制要求 Secret，PKCE 也省不掉）。
+    func startWebFlow() {
+        guard !clientID.isEmpty, !clientSecret.isEmpty else {
+            authError = "请先填入 Client ID 和 Client Secret（OAuth App 设置页可见，Secret 只存本机 Keychain）"
+            return
+        }
+        let verifier = Self.randomCodeVerifier()
+        let challenge = Self.codeChallenge(for: verifier)
+        let state = Self.randomState()
+        codeVerifier = verifier
+        webState = state
+        var comps = URLComponents(string: "https://github.com/login/oauth/authorize")!
+        comps.queryItems = [
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "redirect_uri", value: Self.webCallbackURL),
+            URLQueryItem(name: "scope", value: "repo workflow read:user"),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+        ]
+        guard let url = comps.url else {
+            authError = "构造授权地址失败"
+            return
+        }
+        isAuthenticating = true
+        authError = nil
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: Self.webCallbackScheme) { [weak self] callbackURL, error in
+            Task { @MainActor in
+                guard let self else { return }
+                self.webAuthSession = nil
+                if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
+                    self.isAuthenticating = false
+                    return
+                }
+                if let error {
+                    self.authError = error.localizedDescription
+                    self.isAuthenticating = false
+                    UTLog.error("GitHub 网页登录失败：\(error.localizedDescription)", category: "GitHub")
+                    return
+                }
+                guard let callbackURL,
+                      let items = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?.queryItems else {
+                    self.authError = "未收到 GitHub 回调"
+                    self.isAuthenticating = false
+                    return
+                }
+                if let err = items.first(where: { $0.name == "error" })?.value {
+                    self.authError = err == "access_denied" ? "你已拒绝授权" : "GitHub 返回错误：\(err)"
+                    self.isAuthenticating = false
+                    return
+                }
+                guard let code = items.first(where: { $0.name == "code" })?.value,
+                      let returnedState = items.first(where: { $0.name == "state" })?.value,
+                      returnedState == self.webState else {
+                    self.authError = "回调校验失败（state 不一致），已中止登录"
+                    self.isAuthenticating = false
+                    return
+                }
+                await self.exchangeCodeForToken(code: code)
+            }
+        }
+        session.presentationContextProvider = webAuthPresentation
+        session.prefersEphemeralWebBrowserSession = false
+        webAuthSession = session
+        if !session.start() {
+            isAuthenticating = false
+            authError = "无法打开登录页"
+            webAuthSession = nil
+        }
+    }
+
+    /// 授权码换 token（带 client_secret + code_verifier），成功后调 /user 核对身份再存 Keychain。
+    private func exchangeCodeForToken(code: String) async {
+        guard let verifier = codeVerifier else {
+            authError = "登录状态丢失，请重试"
+            isAuthenticating = false
+            return
+        }
+        do {
+            var req = URLRequest(url: URL(string: "https://github.com/login/oauth/access_token")!)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            let body = [
+                "client_id": clientID,
+                "client_secret": clientSecret,
+                "code": code,
+                "redirect_uri": Self.webCallbackURL,
+                "code_verifier": verifier,
+            ].map { "\($0.key)=\(Self.formEncode($0.value))" }.joined(separator: "&")
+            req.httpBody = body.data(using: .utf8)
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+                throw NSError(domain: "GitHub", code: 0, userInfo: [NSLocalizedDescriptionKey: "换 token 失败（HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)）"])
+            }
+            let tokenResp = try JSONDecoder().decode(DeviceTokenResponse.self, from: data)
+            guard let token = tokenResp.access_token else {
+                throw NSError(domain: "GitHub", code: 0, userInfo: [NSLocalizedDescriptionKey: tokenResp.error_description ?? tokenResp.error ?? "换 token 失败"])
+            }
+            // 核对身份，防止账号混淆
+            var userReq = URLRequest(url: URL(string: "https://api.github.com/user")!)
+            userReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            userReq.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            let (_, userResp) = try await URLSession.shared.data(for: userReq)
+            guard (userResp as? HTTPURLResponse)?.statusCode == 200 else {
+                throw NSError(domain: "GitHub", code: 0, userInfo: [NSLocalizedDescriptionKey: "Token 校验失败"])
+            }
+            codeVerifier = nil
+            webState = nil
+            saveToken(token)
+            isAuthenticating = false
+            UTLog.success("GitHub 网页登录成功（Token 已存入 Keychain）", category: "GitHub")
+        } catch {
+            authError = error.localizedDescription
+            isAuthenticating = false
+            UTLog.error("GitHub 网页登录失败：\(error.localizedDescription)", category: "GitHub")
+        }
+    }
+
+    private static func formEncode(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+    }
+
+    /// PKCE code_verifier：32 字节随机 → 43 字符 base64url（无 padding）。
+    private static func randomCodeVerifier() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    /// PKCE code_challenge：base64url(SHA-256(verifier))，无 padding。
+    private static func codeChallenge(for verifier: String) -> String {
+        let digest = SHA256.hash(data: Data(verifier.utf8))
+        return Data(digest).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    /// 防 CSRF 的随机 state。
+    private static func randomState() -> String {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
     /// 备用路径：Personal Access Token 登录（先用 token 调 /user 验证有效性）。
     func loginWithPAT(_ pat: String) async -> Bool {
         let token = pat.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -167,5 +345,15 @@ final class GitHubAuthService: ObservableObject {
         if let url = verificationURL {
             UIApplication.shared.open(url)
         }
+    }
+}
+
+/// ASWebAuthenticationSession 的展示锚点（单独类：@MainActor 类不能直接遵循该协议）。
+private final class WebAuthPresentationProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow } ?? UIWindow()
     }
 }

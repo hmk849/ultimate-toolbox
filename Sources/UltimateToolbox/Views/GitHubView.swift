@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// GitHub 页：官方 OAuth Device Flow 登录（+ PAT 备用）→ 个人信息、仓库、Issues、PR、Releases、Actions。
+/// GitHub 页：官方 OAuth Device Flow 登录 + 网页登录（ASWebAuthenticationSession）+ PAT 备用 → 个人信息、仓库、Issues、PR、Releases、Actions。
 
 struct GitHubView: View {
     @StateObject private var auth = GitHubAuthService.shared
@@ -40,7 +40,7 @@ struct GitHubView: View {
                 GlassCard {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("第一步：填入 OAuth App Client ID").font(.headline)
-                        Text("在 github.com/settings/developers 新建一个 OAuth App（免费），把 Client ID 复制到这里。授权回调地址可任意填（如 https://localhost）。")
+                        Text("在 github.com/settings/developers 新建一个 OAuth App（免费），回调地址填 com.hmk849.ultimatetoolbox://oauth/github，把 Client ID 复制到这里。")
                             .font(.caption).foregroundStyle(.secondary)
                         TextField("Client ID（如 Ov23li…）", text: $auth.clientID)
                             .textFieldStyle(.roundedBorder)
@@ -70,6 +70,27 @@ struct GitHubView: View {
                         }
                         if let err = auth.authError {
                             Text(err).foregroundStyle(.red).font(.subheadline)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("网页登录（跳转 GitHub 网页）").font(.headline)
+                        Text("点一下跳到 GitHub 登录页输账号密码，授权后自动跳回 App 内。OAuth App 的回调地址须为 com.hmk849.ultimatetoolbox://oauth/github；Client Secret 从 OAuth App 设置页复制（只存本机 Keychain，GitHub 换 token 时强制要求）。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        SecureField("Client Secret", text: $auth.clientSecret)
+                            .textFieldStyle(.roundedBorder)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                        Button("用网页登录 GitHub") {
+                            auth.startWebFlow()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(auth.clientID.isEmpty || auth.clientSecret.isEmpty || auth.isAuthenticating)
+                        if auth.isAuthenticating {
+                            Text("正在等待网页授权…")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
