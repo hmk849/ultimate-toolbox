@@ -63,8 +63,13 @@ final class GitHubAuthService: ObservableObject {
     static let webCallbackURL = "com.hmk849.ultimatetoolbox://oauth/github"
     static let webCallbackScheme = "com.hmk849.ultimatetoolbox"
 
+    /// 本 App 的 OAuth App Client ID（hmk849 账号下“Ultimate Toolbox”，2026-11-19 创建；
+    /// Client ID 是公开标识、不是密钥，Device Flow 换 token 也不需要 Secret，所以可作默认值预填）。
+    static let defaultClientID = "Ov23lifD8ZpzlGAyn3jy"
+
     init() {
-        clientID = UserDefaults.standard.string(forKey: "ut.github.clientID") ?? ""
+        let stored = UserDefaults.standard.string(forKey: "ut.github.clientID") ?? ""
+        clientID = stored.isEmpty ? Self.defaultClientID : stored
         clientSecret = KeychainHelper.read(account: secretAccount) ?? ""
         isLoggedIn = KeychainHelper.read(account: tokenAccount) != nil
     }
@@ -97,6 +102,11 @@ final class GitHubAuthService: ObservableObject {
                 // 404 = GitHub 不认这个 Client ID：OAuth App 没建好、填成了 GitHub App 的 ID（Iv1. 开头）、或抄错了。
                 if statusCode == 404 {
                     throw NSError(domain: "GitHub", code: 404, userInfo: [NSLocalizedDescriptionKey: "Client ID 无效（HTTP 404）：GitHub 不认这个 ID。可能原因：① OAuth App 还没建好；② 填成了 GitHub App 的 Client ID（Iv1. 开头），要 OAuth App 的（Ov23 开头）；③ 抄错了。去 github.com/settings/developers 的 OAuth Apps 里核对。"])
+                }
+                // device_flow_disabled = OAuth App 建好了但没开 Device Flow，去设置页点 Enable Device Flow。
+                if let oauthErr = try? JSONDecoder().decode(DeviceTokenResponse.self, from: data),
+                   oauthErr.error == "device_flow_disabled" {
+                    throw NSError(domain: "GitHub", code: 400, userInfo: [NSLocalizedDescriptionKey: "Device Flow 未开启：去 OAuth App 设置页（github.com/settings/developers → Ultimate Toolbox）点 Enable Device Flow，再回来登录。"])
                 }
                 throw NSError(domain: "GitHub", code: 0, userInfo: [NSLocalizedDescriptionKey: "请求 device_code 失败（HTTP \(statusCode)）"])
             }

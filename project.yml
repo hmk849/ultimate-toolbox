@@ -24,8 +24,8 @@ targets:
     info:
       path: Sources/UltimateToolbox/Resources/Info.plist
       properties:
-        CFBundleShortVersionString: "1.0.8"
-        CFBundleVersion: "9"
+        CFBundleShortVersionString: "1.0.9"
+        CFBundleVersion: "10"
         CFBundleDisplayName: Ultimate Toolbox
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
