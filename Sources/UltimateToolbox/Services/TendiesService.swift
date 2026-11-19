@@ -2,13 +2,18 @@ import Foundation
 
 /// .tendies 动态壁纸：导入安装 + GitHub 壁纸库。
 /// 引擎已实现 BQApplyTendies（解包、写 PosterBoard 描述符、刷新偏好、失败回滚），这里只做 Swift 封装与界面状态。
-/// 壁纸库用 GitHub Contents API 列 CAPlayground/wallpapers（288 个 .tendies，公开仓库，无需登录 GitHub）。
+/// 壁纸库首选仓库根目录 wallpapers.json（名字 + previews/gif/*.gif 预览图，raw 直链不走 API 限流），
+/// 大小从 Contents API 补；任一失败都退回只用 Contents API 列表（无预览图）。
 
 struct TendiesPack: Identifiable, Equatable {
     let id = UUID()
+    /// 展示名：优先用 wallpapers.json 里的 name（带空格，如 "11037 Case 1"），没有则用文件名。
     let name: String
-    let size: Int64
+    /// 大小（Contents API 给；只用 wallpapers.json 时可能没有）。
+    let size: Int64?
     let downloadURL: URL
+    /// 预览图（wallpapers.json 的 preview，仓库 previews/gif/*.gif，raw 直链；没有为 nil）。
+    let previewURL: URL?
     var displayName: String { (name as NSString).deletingPathExtension }
 }
 
@@ -35,6 +40,25 @@ final class TendiesService: ObservableObject {
 
     /// GitHub Contents API（公开仓库，无需登录；未登录每小时限 60 次）。
     static let libraryAPI = URL(string: "https://api.github.com/repos/CAPlayground/wallpapers/contents/wallpapers")!
+    /// 壁纸库元数据（仓库根目录 wallpapers.json，raw 直链，不走 API 限流）。
+    static let libraryJSON = URL(string: "https://raw.githubusercontent.com/CAPlayground/wallpapers/refs/heads/main/wallpapers.json")!
+
+    /// wallpapers.json 的结构：base_url + 每条的名字、文件路径、预览图路径。
+    private struct WallpaperJSON: Decodable {
+        let base_url: String
+        let wallpapers: [WallpaperJSONEntry]
+    }
+    private struct WallpaperJSONEntry: Decodable {
+        let name: String
+        let file: String
+        let preview: String?
+    }
+    private struct ContentsEntry: Decodable {
+        let name: String
+        let size: Int64
+        let download_url: URL?
+        let type: String
+    }
 
     var filteredPacks: [TendiesPack] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -49,36 +73,58 @@ final class TendiesService: ObservableObject {
         isLoadingLibrary = true
         status = "正在加载壁纸库…"
         defer { isLoadingLibrary = false }
-        do {
-            var req = URLRequest(url: Self.libraryAPI)
-            req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-            if http.statusCode == 403 {
-                status = "GitHub API 限流（未登录每小时 60 次），稍后再试"
-                UTLog.warning("壁纸库加载失败：GitHub API 403 限流", category: "交互壁纸")
-                return
+        // 名字 + 预览图走 wallpapers.json，大小 + 下载地址走 Contents API，两边按文件名合并；
+        // JSON 失败退回只用 Contents 列表（无预览图），Contents 失败则只有 JSON 的数据（无大小）。
+        let json = try? await fetchLibraryJSON()
+        let contents = try? await fetchContentsList()
+        if let json {
+            let base = json.base_url
+            let sizeByFile = Dictionary(uniqueKeysWithValues: (contents ?? []).map { ($0.name, $0.size) })
+            var list: [TendiesPack] = json.wallpapers.compactMap { e in
+                let fileName = (e.file as NSString).lastPathComponent
+                guard let downloadURL = URL(string: base + e.file) else { return nil }
+                let previewURL = e.preview.flatMap { URL(string: base + $0) }
+                return TendiesPack(name: e.name, size: sizeByFile[fileName], downloadURL: downloadURL, previewURL: previewURL)
             }
-            guard http.statusCode == 200 else {
-                status = "壁纸库加载失败（HTTP \(http.statusCode)）"
-                return
+            // JSON 里没有的新文件也补上（只有 Contents 列表里有、无预览图）。
+            if let contents {
+                let known = Set(json.wallpapers.map { ($0.file as NSString).lastPathComponent })
+                for c in contents where c.type == "file" && c.name.hasSuffix(".tendies") && !known.contains(c.name) {
+                    guard let url = c.download_url else { continue }
+                    list.append(TendiesPack(name: c.name, size: c.size, downloadURL: url, previewURL: nil))
+                }
             }
-            struct Entry: Decodable { let name: String; let size: Int64; let download_url: URL?; let type: String }
-            let entries = try JSONDecoder().decode([Entry].self, from: data)
-            let list = entries
+            packs = list.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+            status = "壁纸库已加载（\(packs.count) 个）"
+            UTLog.info("壁纸库已加载：\(packs.count) 个", category: "交互壁纸")
+        } else if let contents {
+            packs = contents
                 .filter { $0.type == "file" && $0.name.hasSuffix(".tendies") }
                 .compactMap { e -> TendiesPack? in
                     guard let url = e.download_url else { return nil }
-                    return TendiesPack(name: e.name, size: e.size, downloadURL: url)
+                    return TendiesPack(name: e.name, size: e.size, downloadURL: url, previewURL: nil)
                 }
-                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            packs = list
-            status = "壁纸库：\(list.count) 个壁纸（CAPlayground/wallpapers）"
-            UTLog.info("壁纸库加载完成：\(list.count) 个", category: "交互壁纸")
-        } catch {
-            status = "壁纸库加载失败：\(error.localizedDescription)"
-            UTLog.error("壁纸库加载失败：\(error.localizedDescription)", category: "交互壁纸")
+                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+            status = "壁纸库已加载（\(packs.count) 个，预览图暂不可用）"
+            UTLog.info("壁纸库已加载（仅 Contents 列表）：\(packs.count) 个", category: "交互壁纸")
+        } else {
+            status = "壁纸库加载失败，请检查网络后点刷新"
+            UTLog.error("壁纸库加载失败：JSON 与 Contents API 都不可用", category: "交互壁纸")
         }
+    }
+
+    private func fetchLibraryJSON() async throws -> WallpaperJSON {
+        let (data, resp) = try await URLSession.shared.data(from: Self.libraryJSON)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return try JSONDecoder().decode(WallpaperJSON.self, from: data)
+    }
+
+    private func fetchContentsList() async throws -> [ContentsEntry] {
+        var req = URLRequest(url: Self.libraryAPI)
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return try JSONDecoder().decode([ContentsEntry].self, from: data)
     }
 
     // MARK: - 下载并安装
@@ -89,7 +135,8 @@ final class TendiesService: ObservableObject {
         downloadProgress = 0
         status = "正在下载 \(pack.displayName)…"
         do {
-            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(pack.name)
+            // 临时文件名用下载地址里的真实文件名（含 .tendies 后缀），pack.name 现在是展示名（可能没后缀）。
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(pack.downloadURL.lastPathComponent)
             if FileManager.default.fileExists(atPath: tmp.path) {
                 try? FileManager.default.removeItem(at: tmp)
             }

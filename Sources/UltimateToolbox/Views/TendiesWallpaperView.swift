@@ -63,10 +63,13 @@ struct TendiesWallpaperView: View {
                         }
                         LazyVStack(alignment: .leading, spacing: 12) {
                             ForEach(service.filteredPacks) { pack in
-                                HStack(spacing: 10) {
+                                HStack(spacing: 12) {
+                                    thumbnailView(for: pack)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(pack.displayName).font(.subheadline).fontWeight(.medium)
-                                        Text(SystemInfoService.formatBytes(pack.size)).font(.caption).foregroundStyle(.secondary)
+                                        if let size = pack.size {
+                                            Text(SystemInfoService.formatBytes(size)).font(.caption).foregroundStyle(.secondary)
+                                        }
                                     }
                                     Spacer()
                                     Button(L10n.s("下载安装", "Download & install")) {
@@ -99,5 +102,38 @@ struct TendiesWallpaperView: View {
         .task {
             if service.packs.isEmpty { await service.fetchLibrary() }
         }
+    }
+
+    /// 壁纸预览缩略图（72×96）：仓库 previews/gif/*.gif 的第一帧静态图；
+    /// AsyncImage 不播 GIF 动图，想看动的装上后在墙纸设置里看。无预览图时显示占位块。
+    @ViewBuilder
+    private func thumbnailView(for pack: TendiesPack) -> some View {
+        let w: CGFloat = 72, h: CGFloat = 96
+        if let url = pack.previewURL {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                        .frame(width: w, height: h).clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                case .failure:
+                    placeholderThumb(width: w, height: h)
+                case .empty:
+                    ProgressView().frame(width: w, height: h)
+                @unknown default:
+                    placeholderThumb(width: w, height: h)
+                }
+            }
+            .frame(width: w, height: h)
+        } else {
+            placeholderThumb(width: w, height: h)
+        }
+    }
+
+    private func placeholderThumb(width: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(Color.secondary.opacity(0.15))
+            .frame(width: width, height: height)
+            .overlay(Image(systemName: "photo.fill").foregroundStyle(.secondary))
     }
 }
