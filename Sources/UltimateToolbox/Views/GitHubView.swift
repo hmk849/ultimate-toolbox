@@ -7,6 +7,7 @@ struct GitHubView: View {
     @StateObject private var api = GitHubAPIService.shared
     @State private var patText = ""
     @State private var showPAT = false
+    @State private var showEmbeddedLogin = false
     @State private var selectedTab = 0
     @State private var selectedRepo: GHRepo?
     @State private var showLogoutConfirm = false
@@ -97,6 +98,23 @@ struct GitHubView: View {
                 }
                 GlassCard {
                     VStack(alignment: .leading, spacing: 10) {
+                        Text("账号密码登录（App 内）").font(.headline)
+                        Text("在 App 内打开 GitHub 自己的登录页输账号密码，不跳出 App。密码只在 GitHub 页面输入，App 不接触你的密码；授权后自动回 App 内换 token。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text("GitHub 自 2020 年起不再支持账号密码直接调 API，原生账号密码框换不到 Token，所以账号密码只能在 GitHub 自己的登录页输入。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("用账号密码登录") {
+                            showEmbeddedLogin = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(auth.clientID.isEmpty || auth.clientSecret.isEmpty || auth.isAuthenticating)
+                        Text("需要先填好上面的 Client ID 和 Client Secret（网页登录同一套）。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 10) {
                         Text("备用：Personal Access Token").font(.headline)
                         Text("在 github.com/settings/tokens 生成 Token（classic 或 fine-grained，需 repo / workflow / read:user 权限），粘贴登录。")
                             .font(.caption).foregroundStyle(.secondary)
@@ -117,6 +135,9 @@ struct GitHubView: View {
                     .padding(.horizontal)
             }
             .padding()
+        }
+        .sheet(isPresented: $showEmbeddedLogin) {
+            GitHubEmbeddedLoginView()
         }
     }
 

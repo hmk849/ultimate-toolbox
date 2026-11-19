@@ -160,12 +160,12 @@ final class GitHubAuthService: ObservableObject {
 
     // MARK: - 网页登录（ASWebAuthenticationSession + PKCE + state）
 
-    /// 网页登录：跳 GitHub 网页输账号密码授权，授权后自动跳回 App 内换 token。
-    /// 需要 Client ID + Client Secret（GitHub 换 token 强制要求 Secret，PKCE 也省不掉）。
-    func startWebFlow() {
+    /// 生成授权地址（PKCE + state），供系统浏览器登录与 App 内嵌登录页共用。
+    /// 返回 nil 时 authError 已设置。
+    func beginWebLogin() -> URL? {
         guard !clientID.isEmpty, !clientSecret.isEmpty else {
             authError = "请先填入 Client ID 和 Client Secret（OAuth App 设置页可见，Secret 只存本机 Keychain）"
-            return
+            return nil
         }
         let verifier = Self.randomCodeVerifier()
         let challenge = Self.codeChallenge(for: verifier)
@@ -183,16 +183,54 @@ final class GitHubAuthService: ObservableObject {
         ]
         guard let url = comps.url else {
             authError = "构造授权地址失败"
-            return
+            return nil
         }
         isAuthenticating = true
         authError = nil
+        return url
+    }
+
+    /// 取消一次网页登录（关闭内嵌登录页 / 取消系统浏览器登录时调用）。
+    func cancelWebLogin() {
+        codeVerifier = nil
+        webState = nil
+        isAuthenticating = false
+    }
+
+    /// 处理授权回调：校验 state 与错误，提取 code 换 token。
+    /// 系统浏览器登录与 App 内嵌登录页共用。
+    func completeWebLogin(callbackURL: URL) async {
+        guard let items = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?.queryItems else {
+            authError = "未收到 GitHub 回调"
+            isAuthenticating = false
+            return
+        }
+        if let err = items.first(where: { $0.name == "error" })?.value {
+            authError = err == "access_denied" ? "你已拒绝授权" : "GitHub 返回错误：\(err)"
+            isAuthenticating = false
+            UTLog.error("GitHub 网页登录失败：\(err)", category: "GitHub")
+            return
+        }
+        guard let code = items.first(where: { $0.name == "code" })?.value,
+              let returnedState = items.first(where: { $0.name == "state" })?.value,
+              returnedState == webState else {
+            authError = "回调校验失败（state 不一致），已中止登录"
+            isAuthenticating = false
+            return
+        }
+        await exchangeCodeForToken(code: code)
+    }
+
+    /// 网页登录：跳 GitHub 网页输账号密码授权，授权后自动跳回 App 内换 token。
+    /// 需要 Client ID + Client Secret（GitHub 换 token 强制要求 Secret，PKCE 也省不掉）。
+    func startWebFlow() {
+        guard let url = beginWebLogin() else { return }
         let session = ASWebAuthenticationSession(url: url, callbackURLScheme: Self.webCallbackScheme) { [weak self] callbackURL, error in
             Task { @MainActor in
                 guard let self else { return }
                 self.webAuthSession = nil
                 if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
-                    self.isAuthenticating = false
+                    self.cancelWebLogin()
                     return
                 }
                 if let error {
@@ -201,32 +239,19 @@ final class GitHubAuthService: ObservableObject {
                     UTLog.error("GitHub 网页登录失败：\(error.localizedDescription)", category: "GitHub")
                     return
                 }
-                guard let callbackURL,
-                      let items = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?.queryItems else {
+                guard let callbackURL else {
                     self.authError = "未收到 GitHub 回调"
                     self.isAuthenticating = false
                     return
                 }
-                if let err = items.first(where: { $0.name == "error" })?.value {
-                    self.authError = err == "access_denied" ? "你已拒绝授权" : "GitHub 返回错误：\(err)"
-                    self.isAuthenticating = false
-                    return
-                }
-                guard let code = items.first(where: { $0.name == "code" })?.value,
-                      let returnedState = items.first(where: { $0.name == "state" })?.value,
-                      returnedState == self.webState else {
-                    self.authError = "回调校验失败（state 不一致），已中止登录"
-                    self.isAuthenticating = false
-                    return
-                }
-                await self.exchangeCodeForToken(code: code)
+                await self.completeWebLogin(callbackURL: callbackURL)
             }
         }
         session.presentationContextProvider = webAuthPresentation
         session.prefersEphemeralWebBrowserSession = false
         webAuthSession = session
         if !session.start() {
-            isAuthenticating = false
+            cancelWebLogin()
             authError = "无法打开登录页"
             webAuthSession = nil
         }
