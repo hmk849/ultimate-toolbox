@@ -49,8 +49,8 @@ jobs:
           d = plistlib.load(open('/tmp/UT-info.plist', 'rb'))
           assert d.get('CFBundleExecutable'), 'missing CFBundleExecutable'
           assert d.get('CFBundleIdentifier') == 'com.hmk849.ultimatetoolbox', d.get('CFBundleIdentifier')
-          assert d.get('CFBundleShortVersionString') == '1.0.10', d.get('CFBundleShortVersionString')
-          assert d.get('CFBundleVersion') == '11', d.get('CFBundleVersion')
+          assert d.get('CFBundleShortVersionString') == '1.0.11', d.get('CFBundleShortVersionString')
+          assert d.get('CFBundleVersion') == '12', d.get('CFBundleVersion')
           assert d.get('MinimumOSVersion') == '26.0', d.get('MinimumOSVersion')
           print('IPA verify OK:', d['CFBundleIdentifier'], d['CFBundleShortVersionString'], d['CFBundleVersion'])
           EOF

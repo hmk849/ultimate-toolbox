@@ -24,7 +24,7 @@ struct TendiesWallpaperView: View {
                 GlassCard {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(L10n.wallpaper).font(.headline)
-                        Text(L10n.s("把 .tendies 动态壁纸装进系统 PosterBoard，装完去墙纸设置里挑选。支持导入本地文件，或从 GitHub 壁纸库下载（CAPlayground/wallpapers，288 个）。", "Install .tendies live wallpapers into the system PosterBoard, then pick them in Wallpaper settings. Import a local file or download from the GitHub library (CAPlayground/wallpapers, 288 wallpapers)."))
+                        Text(L10n.s("把 .tendies 动态壁纸装进系统 PosterBoard，装完去墙纸设置里挑选。支持导入本地文件，或从 GitHub 壁纸库下载（CAPlayground 288 个、Nugget 合集 143 个）。", "Install .tendies live wallpapers into the system PosterBoard, then pick them in Wallpaper settings. Import a local file or download from the GitHub libraries (CAPlayground 288, Nugget collection 143)."))
                             .font(.caption).foregroundStyle(.secondary)
                         Text(L10n.s("动的视频循环在锁屏上播；点按切换等交互状态在 iOS 27 上可能不生效，以真机效果为准。单个文件上限 128 MB。", "The animated video loop plays on the Lock Screen; tap-to-switch interactive states may not work on iOS 27 — check on your phone. Single file limit is 128 MB."))
                             .font(.caption).foregroundStyle(.secondary)
@@ -51,9 +51,18 @@ struct TendiesWallpaperView: View {
                             Text(L10n.s("壁纸库", "Wallpaper library")).font(.headline)
                             Spacer()
                             if service.isLoadingLibrary { ProgressView() }
-                            Button(L10n.s("刷新", "Refresh")) { Task { await service.fetchLibrary() } }
+                            Button(L10n.s("刷新", "Refresh")) { Task { await service.fetchLibrary(force: true) } }
                                 .buttonStyle(.bordered)
                                 .disabled(service.isLoadingLibrary)
+                        }
+                        Picker(L10n.s("来源", "Source"), selection: $service.selectedSource) {
+                            ForEach(LibrarySource.allCases) { source in
+                                Text(source.rawValue).tag(source)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: service.selectedSource) { _ in
+                            Task { await service.fetchLibrary() }
                         }
                         TextField(L10n.s("搜索壁纸", "Search wallpapers"), text: $service.searchText)
                             .textFieldStyle(.roundedBorder)
@@ -67,7 +76,9 @@ struct TendiesWallpaperView: View {
                                     thumbnailView(for: pack)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(pack.displayName).font(.subheadline).fontWeight(.medium)
-                                        if let size = pack.size {
+                                        if let subtitle = pack.subtitle {
+                                            Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        } else if let size = pack.size {
                                             Text(SystemInfoService.formatBytes(size)).font(.caption).foregroundStyle(.secondary)
                                         }
                                     }
