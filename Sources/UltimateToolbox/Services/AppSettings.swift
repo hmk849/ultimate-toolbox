@@ -29,6 +29,50 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     var label: String { self == .zh ? "简体中文" : "English" }
 }
 
+/// 字体大小（App 内独立设置，不跟随系统；标准对应 iOS 默认的 .large）。
+enum TextSizeOption: Int, CaseIterable, Identifiable {
+    case small = 0, standard, large, extraLarge, huge
+    var id: Int { rawValue }
+    var label: String {
+        switch self {
+        case .small: return "小"
+        case .standard: return "标准"
+        case .large: return "大"
+        case .extraLarge: return "特大"
+        case .huge: return "超大"
+        }
+    }
+    var dynamicTypeSize: DynamicTypeSize {
+        switch self {
+        case .small: return .small
+        case .standard: return .large
+        case .large: return .extraLarge
+        case .extraLarge: return .extraExtraLarge
+        case .huge: return .extraExtraExtraLarge
+        }
+    }
+}
+
+/// 界面密度：控制列表行最小高度（紧凑 36 / 标准 44 / 宽松 56）。
+enum UIDensity: Int, CaseIterable, Identifiable {
+    case compact = 0, standard, comfortable
+    var id: Int { rawValue }
+    var label: String {
+        switch self {
+        case .compact: return "紧凑"
+        case .standard: return "标准"
+        case .comfortable: return "宽松"
+        }
+    }
+    var minRowHeight: CGFloat {
+        switch self {
+        case .compact: return 36
+        case .standard: return 44
+        case .comfortable: return 56
+        }
+    }
+}
+
 struct AccentPreset: Identifiable {
     let id: String
     let name: String
@@ -54,6 +98,17 @@ final class AppSettings: ObservableObject {
     @AppStorage("ut.language") private var languageRaw: String = AppLanguage.zh.rawValue
     @AppStorage("ut.autoBackup") var autoBackup: Bool = true
     @AppStorage("ut.logRetentionDays") var logRetentionDays: Int = 7
+    @AppStorage("ut.textSize") private var textSizeRaw: Int = TextSizeOption.standard.rawValue
+    @AppStorage("ut.uiDensity") private var uiDensityRaw: Int = UIDensity.standard.rawValue
+
+    var textSize: TextSizeOption {
+        get { TextSizeOption(rawValue: textSizeRaw) ?? .standard }
+        set { textSizeRaw = newValue.rawValue }
+    }
+    var uiDensity: UIDensity {
+        get { UIDensity(rawValue: uiDensityRaw) ?? .standard }
+        set { uiDensityRaw = newValue.rawValue }
+    }
 
     var appearance: AppearanceMode {
         get { AppearanceMode(rawValue: appearanceRaw) ?? .system }
@@ -94,6 +149,8 @@ final class AppSettings: ObservableObject {
         languageRaw = AppLanguage.zh.rawValue
         autoBackup = true
         logRetentionDays = 7
+        textSizeRaw = TextSizeOption.standard.rawValue
+        uiDensityRaw = UIDensity.standard.rawValue
         objectWillChange.send()
     }
 }

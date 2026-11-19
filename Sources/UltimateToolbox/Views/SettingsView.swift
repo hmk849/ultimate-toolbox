@@ -86,6 +86,33 @@ struct SettingsView: View {
                 Text("当前强调色：\(settings.accentName)，将同步应用到按钮、图标、选中状态、开关、导航栏与卡片细节。")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("界面显示") {
+                Picker("字体大小", selection: Binding(
+                    get: { settings.textSize },
+                    set: { settings.textSize = $0 }
+                )) {
+                    ForEach(TextSizeOption.allCases) { opt in
+                        Text(opt.label).tag(opt)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Picker("界面密度", selection: Binding(
+                    get: { settings.uiDensity },
+                    set: { settings.uiDensity = $0 }
+                )) {
+                    ForEach(UIDensity.allCases) { d in
+                        Text(d.label).tag(d)
+                    }
+                }
+                .pickerStyle(.segmented)
+                HStack {
+                    Text("预览")
+                    Spacer()
+                    Text("示例文字 Aa").foregroundStyle(.secondary)
+                }
+                Text("立即生效，作用于全部页面。字体大小为 App 内独立设置，不影响系统其他 App。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("语言") {
                 Picker("语言", selection: Binding(
                     get: { settings.language },

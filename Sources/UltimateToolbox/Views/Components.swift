@@ -14,6 +14,20 @@ struct GlassCard<Content: View>: View {
     }
 }
 
+/// iOS 设置风格图标块：圆角彩色底 + 白色符号（原生系统样式，非 AI 生成图）。
+/// 首页与工具页共用，保持全 App 图标语言一致。
+struct SettingsIconTile: View {
+    let systemName: String
+    let color: Color
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 28, height: 28)
+            .background(color, in: RoundedRectangle(cornerRadius: 7))
+    }
+}
+
 func logColor(_ level: LogLevel) -> Color {
     switch level {
     case .info: return .secondary

@@ -9,7 +9,7 @@ struct ToolsView: View {
         List {
             Section("工具") {
                 toolRow(
-                    icon: "trash.circle.fill", color: .orange,
+                    icon: "trash.fill", color: .orange,
                     title: L10n.cacheCleaner, subtitle: "扫描并清理可访问的缓存",
                     status: compat.report?.crossAppCache,
                     destination: AnyView(CacheCleanerView())
@@ -21,19 +21,19 @@ struct ToolsView: View {
                     destination: AnyView(FileManagerView())
                 )
                 toolRow(
-                    icon: "info.circle.fill", color: .green,
+                    icon: "info.circle", color: .green,
                     title: L10n.systemInfo, subtitle: "公开 API 可读取的设备与系统信息",
                     status: .available,
                     destination: AnyView(SystemInfoView())
                 )
                 toolRow(
-                    icon: "list.bullet.rectangle.fill", color: .purple,
+                    icon: "list.bullet.rectangle", color: .purple,
                     title: L10n.plistEditor, subtitle: "编辑可访问的 Plist 文件",
                     status: .available,
                     destination: AnyView(PlistEditorView())
                 )
                 toolRow(
-                    icon: "gearshape.2.fill", color: .red,
+                    icon: "gearshape.fill", color: .red,
                     title: L10n.gestalt, subtitle: "MobileGestalt 预设与字段编辑",
                     status: compat.report?.gestalt,
                     destination: AnyView(GestaltView())
@@ -60,10 +60,7 @@ struct ToolsView: View {
     private func toolRow(icon: String, color: Color, title: String, subtitle: String, status: ModuleStatus?, destination: AnyView) -> some View {
         NavigationLink(destination: destination) {
             HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.title2)
-                    .foregroundStyle(color)
-                    .frame(width: 36)
+                SettingsIconTile(systemName: icon, color: color)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.headline)
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
@@ -77,7 +74,6 @@ struct ToolsView: View {
                         .foregroundStyle(statusColor(status))
                 }
             }
-            .padding(.vertical, 4)
         }
     }
 }

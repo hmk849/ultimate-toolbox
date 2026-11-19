@@ -16,6 +16,8 @@ struct UltimateToolboxApp: App {
                 .environmentObject(systemInfo)
                 .preferredColorScheme(settings.colorScheme)
                 .accentColor(settings.accentColor)
+                .dynamicTypeSize(settings.textSize.dynamicTypeSize)
+                .environment(\.defaultMinListRowHeight, settings.uiDensity.minRowHeight)
                 .task {
                     await startup()
                 }

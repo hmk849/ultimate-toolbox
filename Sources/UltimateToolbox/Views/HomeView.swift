@@ -16,6 +16,7 @@ struct HomeView: View {
     @State private var selectedLevel: LogLevel?
     @State private var selectedCategory: String?
     @State private var showClearConfirm = false
+    @State private var showRespringConfirm = false
     @State private var shareURL: URL?
     @State private var showShare = false
 
@@ -39,12 +40,45 @@ struct HomeView: View {
         }
     }
 
+    /// 软重启依赖逃逸引擎：27.0.1 可用，27.3 beta 2 起被修补后不可用。
+    private var respringAvailable: Bool {
+        compat.report?.escapeAvailable == true
+    }
+
+    private var respringSubtitle: String {
+        if let report = compat.report {
+            return report.escapeAvailable ? "重启 SpringBoard（桌面）" : report.escapeDetail
+        }
+        return "正在检测逃逸状态…"
+    }
+
     var body: some View {
         List {
             Section("设备") {
                 settingsRow(icon: "iphone", color: .gray, title: "设备", value: SystemInfoService.marketingName(for: SystemInfoService.deviceModelIdentifier()))
                 settingsRow(icon: "applelogo", color: .gray, title: "系统", value: "iOS \(UIDevice.current.systemVersion)（Build \(compat.build)）")
                 settingsRow(icon: "app.badge", color: .blue, title: "App 版本", value: appVersion)
+            }
+
+            Section("设备操作") {
+                HStack(spacing: 12) {
+                    SettingsIconTile(systemName: "arrow.triangle.2.circlepath", color: .red)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("软重启（Respring）")
+                        Text(respringSubtitle)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if respringAvailable {
+                        Button("执行") { showRespringConfirm = true }
+                            .buttonStyle(.bordered)
+                    } else {
+                        Text("不可用").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(!respringAvailable)
+            } footer: {
+                Text("软重启只重启 SpringBoard（桌面），正在运行的 App 会被关闭；不是整机重启。整机重启仍需用电源键或设置 → 通用 → 关机。")
             }
 
             Section {
@@ -72,7 +106,7 @@ struct HomeView: View {
 
             Section {
                 HStack(spacing: 12) {
-                    iconTile("hammer.fill", color: .orange)
+                    SettingsIconTile(systemName: "hammer.fill", color: .orange)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("GitHub 云编译")
                         Text("hmk849/ultimate-toolbox · main")
@@ -175,6 +209,14 @@ struct HomeView: View {
                 Button(role: .destructive) { showClearConfirm = true } label: { Image(systemName: "trash") }
             }
         }
+        .alert("软重启？", isPresented: $showRespringConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("软重启", role: .destructive) {
+                Task { await GestaltService.shared.respring() }
+            }
+        } message: {
+            Text("将重启 SpringBoard（桌面），正在运行的 App 会被关闭。")
+        }
         .alert("清空日志？", isPresented: $showClearConfirm) {
             Button("取消", role: .cancel) {}
             Button("清空", role: .destructive) {
@@ -193,20 +235,9 @@ struct HomeView: View {
         .searchable(text: $searchText, prompt: "搜索日志")
     }
 
-    // MARK: - 设置风格行
-
-    /// iOS 设置风格的图标块：圆角彩色底 + 白色符号。
-    private func iconTile(_ systemName: String, color: Color) -> some View {
-        Image(systemName: systemName)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 28, height: 28)
-            .background(color, in: RoundedRectangle(cornerRadius: 7))
-    }
-
     private func settingsRow(icon: String, color: Color, title: String, value: String) -> some View {
         HStack(spacing: 12) {
-            iconTile(icon, color: color)
+            SettingsIconTile(systemName: icon, color: color)
             Text(title)
             Spacer()
             Text(value).foregroundStyle(.secondary)
