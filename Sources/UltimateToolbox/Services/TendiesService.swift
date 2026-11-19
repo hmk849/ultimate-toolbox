@@ -12,6 +12,15 @@ struct TendiesPack: Identifiable, Equatable {
     var displayName: String { (name as NSString).deletingPathExtension }
 }
 
+/// 壁纸操作失败的原因（Result 的 Failure 必须是 Error，不能直接用 String）。
+enum TendiesError: LocalizedError {
+    case message(String)
+    var errorDescription: String? {
+        if case .message(let m) = self { return m }
+        return nil
+    }
+}
+
 @MainActor
 final class TendiesService: ObservableObject {
     static let shared = TendiesService()
@@ -94,18 +103,21 @@ final class TendiesService: ObservableObject {
         }
     }
 
-    /// 流式下载到临时文件并上报进度。
+    /// 流式下载到临时文件并上报进度（URLSessionDownloadDelegate）。
+    /// 注意：URLSession.shared.bytes 是逐字节（UInt8）的 AsyncBytes，不适合直接写文件，改用下载任务。
     private func downloadWithProgress(from url: URL, to dest: URL) async throws {
-        let (bytes, resp) = try await URLSession.shared.bytes(from: url)
-        let total = resp.expectedContentLength
-        FileManager.default.createFile(atPath: dest.path, contents: nil)
-        guard let handle = try? FileHandle(forWritingTo: dest) else { throw URLError(.cannotCreateFile) }
-        defer { try? handle.close() }
-        var written: Int64 = 0
-        for try await chunk in bytes {
-            try handle.write(contentsOf: chunk)
-            written += Int64(chunk.count)
-            if total > 0 { downloadProgress = Double(written) / Double(total) }
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            let delegate = TendiesDownloadDelegate(destination: dest) { [weak self] p in
+                Task { @MainActor in self?.downloadProgress = p }
+            } onComplete: { result in
+                switch result {
+                case .success: c.resume()
+                case .failure(let error): c.resume(throwing: error)
+                }
+            }
+            let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+            delegate.session = session
+            session.downloadTask(with: url).resume()
         }
     }
 
@@ -140,23 +152,23 @@ final class TendiesService: ObservableObject {
         case .success(let count):
             status = "已安装 \(label)（\(count) 个描述符），去墙纸设置里挑选"
             UTLog.success("壁纸已安装：\(label)，\(count) 个描述符", category: "交互壁纸")
-        case .failure(let message):
-            status = "安装失败：\(message)"
-            UTLog.error("壁纸安装失败：\(message)", category: "交互壁纸")
+        case .failure(let error):
+            status = "安装失败：\(error.localizedDescription)"
+            UTLog.error("壁纸安装失败：\(error.localizedDescription)", category: "交互壁纸")
         }
     }
 
     /// BQApplyTendies 是阻塞调用（解包最大 128MB），放后台线程跑。
-    private func runApply(url: URL) async -> Result<Int, String> {
+    private func runApply(url: URL) async -> Result<Int, TendiesError> {
         await withCheckedContinuation { c in
             DispatchQueue.global(qos: .userInitiated).async {
                 var count: CInt = 0
                 var err: NSString?
-                let ok = BQApplyTendies(url as NSURL, &count, &err)
+                let ok = BQApplyTendies(url, &count, &err)
                 if ok {
                     c.resume(returning: .success(Int(count)))
                 } else {
-                    c.resume(returning: .failure(err as String? ?? "安装失败"))
+                    c.resume(returning: .failure(.message(err as String? ?? "安装失败")))
                 }
             }
         }
@@ -165,14 +177,14 @@ final class TendiesService: ObservableObject {
     /// 重置 PosterBoard：删除已导入的壁纸描述符（系统自带壁纸不受影响）。
     /// 引擎安装失败且回滚不完整时，错误信息会提示先重置再重试。
     func resetPosterBoard() async {
-        let result: Result<Void, String> = await withCheckedContinuation { c in
+        let result: Result<Void, TendiesError> = await withCheckedContinuation { c in
             DispatchQueue.global(qos: .userInitiated).async {
                 var err: NSString?
                 let ok = BQResetPosterBoard(&err)
                 if ok {
                     c.resume(returning: .success(()))
                 } else {
-                    c.resume(returning: .failure(err as String? ?? "重置失败"))
+                    c.resume(returning: .failure(.message(err as String? ?? "重置失败")))
                 }
             }
         }
@@ -180,9 +192,9 @@ final class TendiesService: ObservableObject {
         case .success:
             status = "PosterBoard 已重置（已删导入的描述符）"
             UTLog.success("PosterBoard 已重置", category: "交互壁纸")
-        case .failure(let message):
-            status = "重置失败：\(message)"
-            UTLog.error("PosterBoard 重置失败：\(message)", category: "交互壁纸")
+        case .failure(let error):
+            status = "重置失败：\(error.localizedDescription)"
+            UTLog.error("PosterBoard 重置失败：\(error.localizedDescription)", category: "交互壁纸")
         }
     }
 
@@ -191,5 +203,51 @@ final class TendiesService: ObservableObject {
         if !BQOpenPosterBoard() {
             status = "无法打开墙纸设置，请手动去设置 → 墙纸挑选"
         }
+    }
+}
+
+/// 带进度的下载任务代理：下完把系统临时文件移到目标位置，失败只回调一次。
+/// 回调都在 session 的串行代理队列上跑，finished 标志只在该队列上读写。
+private final class TendiesDownloadDelegate: NSObject, URLSessionDownloadDelegate {
+    let destination: URL
+    let onProgress: (Double) -> Void
+    let onComplete: (Result<Void, Error>) -> Void
+    var session: URLSession?
+    private var finished = false
+
+    init(destination: URL, onProgress: @escaping (Double) -> Void, onComplete: @escaping (Result<Void, Error>) -> Void) {
+        self.destination = destination
+        self.onProgress = onProgress
+        self.onComplete = onComplete
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        if totalBytesExpectedToWrite > 0 {
+            onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+        }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        do {
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.moveItem(at: location, to: destination)
+            finish(.success(()))
+        } catch {
+            finish(.failure(error))
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error { finish(.failure(error)) }
+    }
+
+    private func finish(_ result: Result<Void, Error>) {
+        guard !finished else { return }
+        finished = true
+        session?.finishTasksAndInvalidate()
+        session = nil
+        onComplete(result)
     }
 }
