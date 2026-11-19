@@ -14,12 +14,12 @@ struct BatteryHealthInfo {
     let dataDate: Date?
 }
 
-final class BatteryHealthService {
+final class BatteryHealthService: Sendable {
     static let shared = BatteryHealthService()
 
-    func fetch() async -> BatteryHealthInfo? {
+    func fetch(modelIdentifier: String) async -> BatteryHealthInfo? {
         if let live = await iokitProbe() { return live }
-        return await analyticsProbe()
+        return await analyticsProbe(modelIdentifier: modelIdentifier)
     }
 
     // MARK: - IOKit 实时探测（无专用 entitlement 时大概率被拦住，失败即返回 nil）
@@ -62,7 +62,7 @@ final class BatteryHealthService {
 
     // MARK: - Analytics 诊断日志（逃逸读文件，零 entitlement）
 
-    private func analyticsProbe() async -> BatteryHealthInfo? {
+    private func analyticsProbe(modelIdentifier: String) async -> BatteryHealthInfo? {
         let dir = "/var/mobile/Library/Logs/CrashReporter/DiagnosticLogs"
         guard let names = await EscapeService.shared.listDirectory(dir) else {
             UTLog.warning("电池健康：诊断日志目录不可读", category: "系统信息")
@@ -85,7 +85,7 @@ final class BatteryHealthService {
             let rawMax = (plist["com.apple.power.battery.raw_max_capacity"] as? NSNumber)?.intValue
             let maxPercent = (plist["battery.MaximumCapacityPercent"] as? NSNumber)?.doubleValue
             guard cycles != nil || design != nil || nominal != nil || rawMax != nil || maxPercent != nil else { continue }
-            let designMah = design ?? Self.designCapacityFallback()
+            let designMah = design ?? Self.designCapacityFallback(modelIdentifier: modelIdentifier)
             let current = rawMax ?? nominal
             var health = maxPercent
             if health == nil, let d = designMah, d > 0, let cur = current { health = Double(cur) / Double(d) * 100 }
@@ -118,9 +118,11 @@ final class BatteryHealthService {
         var buffer = [UInt8](repeating: 0, count: chunk)
         var status: Int32 = Z_OK
         repeat {
-            stream.next_out = &buffer
-            stream.avail_out = uInt(chunk)
-            status = inflate(&stream, Z_NO_FLUSH)
+            status = buffer.withUnsafeMutableBufferPointer { ptr in
+                stream.next_out = ptr.baseAddress
+                stream.avail_out = uInt(chunk)
+                return inflate(&stream, Z_NO_FLUSH)
+            }
             if status != Z_OK && status != Z_STREAM_END && status != Z_BUF_ERROR { return nil }
             let have = chunk - Int(stream.avail_out)
             if have > 0 { out.append(buffer, count: have) }
@@ -142,8 +144,8 @@ final class BatteryHealthService {
     }
 
     /// 新版诊断日志可能没有 design_capacity，按机型查表补（只列有把握的 iPhone 15 系列）。
-    private static func designCapacityFallback() -> Int? {
-        switch SystemInfoService.deviceModelIdentifier() {
+    private static func designCapacityFallback(modelIdentifier: String) -> Int? {
+        switch modelIdentifier {
         case "iPhone15,4": return 3349 // iPhone 15
         case "iPhone15,5": return 4383 // iPhone 15 Plus
         case "iPhone15,2": return 3274 // iPhone 15 Pro

@@ -50,7 +50,6 @@ targets:
       - sdk: libz.tbd
       - sdk: IOKit.framework
       - sdk: NetworkExtension.framework
-      - sdk: SystemConfiguration.framework
       - sdk: CoreLocation.framework
       - sdk: Compression.framework
     entitlements:

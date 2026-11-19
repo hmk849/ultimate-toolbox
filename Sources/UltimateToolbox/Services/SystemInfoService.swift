@@ -23,7 +23,7 @@ struct SystemInfoSection: Identifiable {
 }
 
 @MainActor
-final class SystemInfoService: ObservableObject, CBCentralManagerDelegate {
+final class SystemInfoService: ObservableObject {
     static let shared = SystemInfoService()
 
     @Published private(set) var sections: [SystemInfoSection] = []
@@ -33,7 +33,8 @@ final class SystemInfoService: ObservableObject, CBCentralManagerDelegate {
     private let monitorQueue = DispatchQueue(label: "com.hmk849.ultimatetoolbox.network")
 
     /// 蓝牙开关状态（CoreBluetooth 公开 API，只读状态，不扫描不连接）。
-    private var bluetoothManager: CBCentralManager?
+    /// 委托类必须单独继承 NSObject（@MainActor 类不能直接遵循 CBCentralManagerDelegate）。
+    private var bluetoothProbe: BluetoothProbe?
     private var bluetoothStatus: String = "检测中…"
 
     /// 异步探测结果（电池健康 / Wi-Fi 名称），初始为检测中，探测完成或失败后更新。
@@ -42,19 +43,6 @@ final class SystemInfoService: ObservableObject, CBCentralManagerDelegate {
     private var wifiValue: String = "检测中…"
     private var wifiAvailable = false
     private var probesStarted = false
-
-    func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        switch central.state {
-        case .poweredOn: bluetoothStatus = "已开启"
-        case .poweredOff: bluetoothStatus = "已关闭"
-        case .unauthorized: bluetoothStatus = "未授权（请在设置中允许蓝牙）"
-        case .unsupported: bluetoothStatus = "设备不支持蓝牙"
-        case .resetting: bluetoothStatus = "正在重置…"
-        case .unknown: bluetoothStatus = "检测中…"
-        @unknown default: bluetoothStatus = "未知"
-        }
-        refresh()
-    }
 
     static func deviceModelIdentifier() -> String {
         CompatibilityService.sysctlString("hw.machine") ?? UIDevice.current.model
@@ -117,9 +105,14 @@ final class SystemInfoService: ObservableObject, CBCentralManagerDelegate {
 
     func refresh() {
         UIDevice.current.isBatteryMonitoringEnabled = true
-        // 懒创建蓝牙管理器（只读开关状态；首次创建时系统可能弹一次蓝牙权限提示）。
-        if bluetoothManager == nil {
-            bluetoothManager = CBCentralManager(delegate: self, queue: nil)
+        // 懒创建蓝牙探测器（只读开关状态；首次创建时系统可能弹一次蓝牙权限提示）。
+        if bluetoothProbe == nil {
+            bluetoothProbe = BluetoothProbe { [weak self] status in
+                Task { @MainActor in
+                    self?.bluetoothStatus = status
+                    self?.refresh()
+                }
+            }
         }
         // 电池健康与 Wi-Fi 名称只探测一次（异步，完成后自动刷新本页）。
         if !probesStarted {
@@ -189,7 +182,7 @@ final class SystemInfoService: ObservableObject, CBCentralManagerDelegate {
 
     /// 异步探测电池健康与 Wi-Fi 名称，任一完成即更新本页。
     private func startProbes() async {
-        async let battery = BatteryHealthService.shared.fetch()
+        async let battery = BatteryHealthService.shared.fetch(modelIdentifier: Self.deviceModelIdentifier())
         async let wifi = WiFiService.shared.fetch()
         let b = await battery
         let w = await wifi
@@ -215,12 +208,37 @@ final class SystemInfoService: ObservableObject, CBCentralManagerDelegate {
             batteryAvailable = false
         }
         if let w {
-            wifiValue = w.source == "系统 Wi-Fi 信息" || w.source == "系统动态库" ? w.ssid : "\(w.ssid)（\(w.source)）"
+            wifiValue = w.source == "系统 Wi-Fi 信息" ? w.ssid : "\(w.ssid)（\(w.source)）"
             wifiAvailable = true
         } else {
             wifiValue = "不可读取（未获定位授权且系统配置中无匹配网络）"
             wifiAvailable = false
         }
         refresh()
+    }
+}
+
+/// 蓝牙开关状态探测（CoreBluetooth，只读状态，不扫描不连接）。
+/// 单独的 NSObject 子类：@MainActor 类不能直接遵循 CBCentralManagerDelegate。
+private final class BluetoothProbe: NSObject, CBCentralManagerDelegate {
+    private var manager: CBCentralManager?
+    private let onState: (String) -> Void
+
+    init(onState: @escaping (String) -> Void) {
+        self.onState = onState
+        super.init()
+        manager = CBCentralManager(delegate: self, queue: nil)
+    }
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        switch central.state {
+        case .poweredOn: onState("已开启")
+        case .poweredOff: onState("已关闭")
+        case .unauthorized: onState("未授权（请在设置中允许蓝牙）")
+        case .unsupported: onState("设备不支持蓝牙")
+        case .resetting: onState("正在重置…")
+        case .unknown: onState("检测中…")
+        @unknown default: onState("未知")
+        }
     }
 }

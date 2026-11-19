@@ -1,45 +1,28 @@
 import Foundation
 import NetworkExtension
 import CoreLocation
-import SystemConfiguration
 
 /// 当前 Wi-Fi 名称：NEHotspotNetwork.fetchCurrent（需 wifi-info entitlement + 精确定位）优先，
-/// SCDynamicStore 便宜探测次之，逃逸读系统 Wi-Fi 配置文件做后备；都读不到返回 nil，不伪造。
+/// 逃逸读系统 Wi-Fi 配置文件做后备；都读不到返回 nil，不伪造。
 
 struct WiFiInfo {
     let ssid: String
-    /// "系统 Wi-Fi 信息" / "系统动态库" / "系统 Wi-Fi 配置（按 BSSID 匹配）" / "系统 Wi-Fi 配置（最近加入）"
+    /// "系统 Wi-Fi 信息" / "系统 Wi-Fi 配置（按 BSSID 匹配）" / "系统 Wi-Fi 配置（最近加入）"
     let source: String
 }
 
+@MainActor
 final class WiFiService {
     static let shared = WiFiService()
     private let locationManager = CLLocationManager()
 
     func fetch() async -> WiFiInfo? {
-        // 1. SCDynamicStore 便宜探测（无 entitlement 也能试一次，大概率 nil）
-        if let ssid = dynamicStoreSSID() {
-            return WiFiInfo(ssid: ssid, source: "系统动态库")
-        }
-        // 2. 官方接口（需 wifi-info entitlement + 精确定位授权）
+        // 1. 官方接口（需 wifi-info entitlement + 精确定位授权）
         if let ssid = await fetchCurrentSSID() {
             return WiFiInfo(ssid: ssid, source: "系统 Wi-Fi 信息")
         }
-        // 3. 逃逸读配置文件（启发式：BSSID 匹配，退而求其次取最近加入）
+        // 2. 逃逸读配置文件（启发式：BSSID 匹配，退而求其次取最近加入）
         return await escapeSSID()
-    }
-
-    // MARK: - SCDynamicStore
-
-    private func dynamicStoreSSID() -> String? {
-        guard let store = SCDynamicStoreCreate(kCFAllocatorDefault, "com.hmk849.ultimatetoolbox" as CFString, nil, nil),
-              let value = SCDynamicStoreCopyValue(store, "State:/Network/Interface/en0/AirPort" as CFString) as? [String: Any] else {
-            return nil
-        }
-        if let ssid = value["SSID"] as? String, !ssid.isEmpty { return ssid }
-        if let ssid = value["SSID_STR"] as? String, !ssid.isEmpty { return ssid }
-        if let data = value["SSID"] as? Data, let ssid = String(data: data, encoding: .utf8), !ssid.isEmpty { return ssid }
-        return nil
     }
 
     // MARK: - NEHotspotNetwork.fetchCurrent
