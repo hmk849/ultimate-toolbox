@@ -24,7 +24,9 @@ struct UltimateToolboxApp: App {
 
     private func startup() async {
         let device = UIDevice.current
-        UTLog.info("Ultimate Toolbox 启动：v1.0.0 (build 1)", category: "启动")
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        UTLog.info("Ultimate Toolbox 启动：v\(appVersion) (build \(appBuild))", category: "启动")
         UTLog.info("设备：\(SystemInfoService.marketingName(for: SystemInfoService.deviceModelIdentifier()))（\(SystemInfoService.deviceModelIdentifier())）", category: "启动")
         UTLog.info("系统：iOS \(device.systemVersion)，Build \(CompatibilityService.shared.build)", category: "启动")
         SystemInfoService.shared.startNetworkMonitor()

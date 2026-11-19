@@ -5,15 +5,41 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var logStore: LogStore
+    @StateObject private var auth = GitHubAuthService.shared
+    @StateObject private var api = GitHubAPIService.shared
     @State private var customColor: Color = .blue
     @State private var showResetConfirm = false
     @State private var showClearLogsConfirm = false
+    @State private var showLogoutConfirm = false
     @State private var updateMessage: String?
     @State private var showUpdateAlert = false
     @State private var isCheckingUpdate = false
 
     var body: some View {
         List {
+            Section("账号与设备") {
+                HStack {
+                    Text("本机设备")
+                    Spacer()
+                    Text("\(SystemInfoService.marketingName(for: SystemInfoService.deviceModelIdentifier())) · iOS \(UIDevice.current.systemVersion)")
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("GitHub 账号")
+                    Spacer()
+                    if auth.isLoggedIn {
+                        Text("@\(api.user?.login ?? "已登录")").foregroundStyle(.secondary)
+                    } else {
+                        Text("未登录").foregroundStyle(.secondary)
+                    }
+                }
+                if auth.isLoggedIn {
+                    Button("注销设备", role: .destructive) { showLogoutConfirm = true }
+                } else {
+                    Text("去 GitHub 页登录后，这里会显示账号并可一键注销。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             Section("外观") {
                 Picker("外观", selection: Binding(
                     get: { settings.appearance },
@@ -114,6 +140,15 @@ struct SettingsView: View {
             }
         }
         .navigationTitle(L10n.settings)
+        .alert("注销设备？", isPresented: $showLogoutConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("注销", role: .destructive) {
+                auth.logout()
+                api.clear()
+            }
+        } message: {
+            Text("将删除本机 Keychain 中的 GitHub Token，并清除已加载的 GitHub 个人信息。撤销授权请到 github.com/settings/applications 操作。")
+        }
         .alert("重置应用设置？", isPresented: $showResetConfirm) {
             Button("取消", role: .cancel) {}
             Button("重置", role: .destructive) {
